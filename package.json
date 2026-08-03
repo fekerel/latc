@@ -1,0 +1,15 @@
+{
+  "name": "latc",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "scan": "node scan.js",
+    "server": "node server.js",
+    "client": "node client.js"
+  },
+  "dependencies": {
+    "@achingbrain/ssdp": "^4.2.4",
+    "ws": "^8.18.0"
+  }
+}
