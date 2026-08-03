@@ -36,14 +36,26 @@ Basit WebSocket istemcisi:
 npm run client
 ```
 
-Simdilik ana dosyalar:
+## Klasor Yapisi
+
+Kokte calistirma dosyalari ve proje metadatasi var:
 
 ```text
 package.json
 scan.js
-discovery-manager.js
-device-registry.js
-discovery-coordinator.js
 server.js
 client.js
 ```
+
+Asil uygulama kodu `src` altinda:
+
+```text
+src/app.js
+src/api/server.js
+src/discovery/index.js
+src/discovery/discovery-manager.js
+src/discovery/device-registry.js
+src/discovery/discovery-coordinator.js
+```
+
+`src/discovery/index.js`, discovery modulunun factory dosyasidir. Disariya manager instance'ini acmaz; `createDiscoveryModule()` ile modulun public fonksiyonlarini verir.

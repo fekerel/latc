@@ -54,6 +54,10 @@ export class DiscoveryCoordinator extends EventEmitter {
     }
   }
 
+  listDevices() {
+    return this.deviceRegistry.listDevices();
+  }
+
   broadcast(message) {
     for (const listener of this.subscribers) {
       listener(message);

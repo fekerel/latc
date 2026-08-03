@@ -1,20 +1,14 @@
-import { DiscoveryCoordinator } from "./discovery-coordinator.js";
-import { DiscoveryManager } from "./discovery-manager.js";
-import { DeviceRegistry } from "./device-registry.js";
+import { createApp } from "./src/app.js";
 
 const SCAN_SECONDS = 5;
 
-const discoveryManager = new DiscoveryManager({
-  searchInterval: 5000
-});
-const deviceRegistry = new DeviceRegistry();
-const coordinator = new DiscoveryCoordinator(discoveryManager, deviceRegistry);
+const app = createApp();
 
-coordinator.on("error", (error) => {
+app.discovery.onError((error) => {
   console.error("SSDP error:", error.message);
 });
 
-const unsubscribe = await coordinator.subscribe((message) => {
+const unsubscribe = await app.discovery.subscribe((message) => {
   if (message.type === "device") {
     printDevice(message.device);
   }
@@ -22,20 +16,21 @@ const unsubscribe = await coordinator.subscribe((message) => {
 
 setTimeout(async () => {
   unsubscribe();
-  printResults(deviceRegistry.listDevices());
+  printResults(app.discovery.listDevices());
 }, SCAN_SECONDS * 1000);
 
 function printDevice(device) {
-  console.log(`Bulundu: ${device.name || device.udn}`);
+  console.log(`Bulundu: ${device.name || device.id}`);
 }
 
 function printResults(devices) {
   const rows = devices.map((device) => ({
-    udn: device.udn,
+    id: device.id,
     name: device.name,
     manufacturer: device.manufacturer,
     modelName: device.modelName,
     online: device.online,
+    usnCount: device.usns.length,
     serviceCount: device.services.length
   }));
 
