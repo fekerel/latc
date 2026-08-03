@@ -6,11 +6,14 @@ export class DiscoveryWebSocketHandler {
   }
 
   async handle(socket) {
-    let unsubscribe = () => {};
+    let unsubscribe;
+    let closed = false;
     let unsubscribed = false;
 
-    const unsubscribeOnce = () => {
-      if (unsubscribed) {
+    const cleanup = () => {
+      closed = true;
+
+      if (!unsubscribe || unsubscribed) {
         return;
       }
 
@@ -18,20 +21,21 @@ export class DiscoveryWebSocketHandler {
       unsubscribe();
     };
 
+    socket.once("close", cleanup);
+    socket.once("error", cleanup);
+
     try {
       unsubscribe = await this.subscribe((message) => {
         sendSocketJson(socket, message);
       });
-    } catch (error) {
-      sendSocketJson(socket, {
-        type: "error",
-        message: error.message
-      });
-      socket.close();
-      return;
-    }
 
-    socket.on("close", unsubscribeOnce);
-    socket.on("error", unsubscribeOnce);
+      if (closed) {
+        cleanup();
+      }
+    } catch (error) {
+      cleanup();
+      sendSocketJson(socket, { type: "error", message: error.message });
+      socket.close();
+    }
   }
 }

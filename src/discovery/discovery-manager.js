@@ -18,25 +18,32 @@ export class DiscoveryManager extends EventEmitter {
   }
 
   async start() {
-    if (this.bus) {
-      return;
-    }
+    while (true) {
+      if (this.bus) {
+        return;
+      }
 
-    if (this.startingPromise) {
-      await this.startingPromise;
-      return;
-    }
+      if (this.startingPromise) {
+        await this.startingPromise;
+        return;
+      }
 
-    if (this.stoppingPromise) {
+      if (!this.stoppingPromise) {
+        break;
+      }
+
       await this.stoppingPromise;
     }
 
-    this.startingPromise = this.doStart();
+    const startingPromise = this.doStart();
+    this.startingPromise = startingPromise;
 
     try {
-      await this.startingPromise;
+      await startingPromise;
     } finally {
-      this.startingPromise = null;
+      if (this.startingPromise === startingPromise) {
+        this.startingPromise = null;
+      }
     }
   }
 
@@ -78,12 +85,14 @@ export class DiscoveryManager extends EventEmitter {
       return this.stoppingPromise;
     }
 
-    this.stoppingPromise = this.doStop();
+    const stoppingPromise = this.doStop();
+    this.stoppingPromise = stoppingPromise;
 
     try {
-      return await this.stoppingPromise;
+      return await stoppingPromise;
     } finally {
-      this.stoppingPromise = null;
+      if (this.stoppingPromise === stoppingPromise)
+        this.stoppingPromise = null;
     }
   }
 
