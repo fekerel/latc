@@ -9,6 +9,7 @@ export class DiscoveryCoordinator extends EventEmitter {
     this.stopGraceMs = options.stopGraceMs ?? 5000;
     this.subscribers = new Set();
     this.stopTimer = null;
+    this.startingSessionPromise = null;
 
     this.discoveryManager.on("service", (service) => {
       this.deviceRegistry.addService(service);
@@ -28,11 +29,7 @@ export class DiscoveryCoordinator extends EventEmitter {
 
   async subscribe(listener) {
     this.clearStopTimer();
-
-    if (!this.discoveryManager.running) {
-      this.deviceRegistry.clear();
-      await this.discoveryManager.start();
-    }
+    await this.ensureDiscoverySession();
 
     this.subscribers.add(listener);
 
@@ -56,6 +53,33 @@ export class DiscoveryCoordinator extends EventEmitter {
 
   listDevices() {
     return this.deviceRegistry.listDevices();
+  }
+
+  async ensureDiscoverySession() {
+    if (this.discoveryManager.running) {
+      return;
+    }
+
+    if (this.startingSessionPromise) {
+      await this.startingSessionPromise;
+      return;
+    }
+
+    const startingSessionPromise = this.startDiscoverySession();
+    this.startingSessionPromise = startingSessionPromise;
+
+    try {
+      await startingSessionPromise;
+    } finally {
+      if (this.startingSessionPromise === startingSessionPromise) {
+        this.startingSessionPromise = null;
+      }
+    }
+  }
+
+  async startDiscoverySession() {
+    this.deviceRegistry.clear();
+    await this.discoveryManager.start();
   }
 
   broadcast(message) {
