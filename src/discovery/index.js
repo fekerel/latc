@@ -1,5 +1,6 @@
 import { DiscoveryCoordinator } from "./discovery-coordinator.js";
 import { DiscoveryManager } from "./discovery-manager.js";
+import { DiscoveryWebSocketHandler } from "./discovery-websocket-handler.js";
 import { DeviceRegistry } from "./device-registry.js";
 
 export function createDiscoveryModule(options = {}) {
@@ -12,9 +13,12 @@ export function createDiscoveryModule(options = {}) {
   const coordinator = new DiscoveryCoordinator(manager, registry, {
     stopGraceMs: options.stopGraceMs ?? 5000
   });
+  const websocketHandler = new DiscoveryWebSocketHandler({
+    subscribe: coordinator.subscribe.bind(coordinator)
+  });
 
   return {
-    subscribe: coordinator.subscribe.bind(coordinator),
+    handleWebSocket: websocketHandler.handle.bind(websocketHandler),
     listDevices: coordinator.listDevices.bind(coordinator),
     onError: (listener) => coordinator.on("error", listener)
   };

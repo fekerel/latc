@@ -52,10 +52,13 @@ Asil uygulama kodu `src` altinda:
 ```text
 src/app.js
 src/api/server.js
+src/api/websocket.js
+src/common/websocket.js
 src/discovery/index.js
 src/discovery/discovery-manager.js
 src/discovery/device-registry.js
 src/discovery/discovery-coordinator.js
+src/discovery/discovery-websocket-handler.js
 ```
 
 `src/discovery/index.js`, discovery modulunun factory dosyasidir. Disariya manager instance'ini acmaz; `createDiscoveryModule()` ile modulun public fonksiyonlarini verir.
