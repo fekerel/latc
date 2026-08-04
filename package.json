@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@achingbrain/ssdp": "^4.2.4",
+    "better-sqlite3": "^13.0.1",
     "ws": "^8.18.0"
   }
 }
