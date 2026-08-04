@@ -1,195 +1,411 @@
 import { EventEmitter } from "node:events";
-import crypto from "node:crypto";
+import { randomUUID } from "node:crypto";
+
+class NoopPersistedIdentityIndex {
+  findDeviceIdByUsn() {
+    return null;
+  }
+
+  learnUsnsForPersistedDevice() {}
+}
 
 export class DeviceRegistry extends EventEmitter {
   constructor(options = {}) {
     super();
 
+    /*
+      DeviceRegistry answers this question:
+
+        "During the current discovery session, which live devices have we seen?"
+
+      It does not write to the database directly.
+
+      Persistence-related work is delegated to persistedIdentityIndex. That
+      object represents the database's RAM mirror and write queue.
+
+      Expected persistedIdentityIndex contract:
+
+        findDeviceIdByUsn(usn) -> persistedDeviceId | null
+
+        learnUsnsForPersistedDevice({
+          persistedDeviceId,
+          usns
+        })
+
+      The second function may synchronously update its RAM map and enqueue
+      missing DB writes in its own module.
+    */
+    this.persistedIdentityIndex =
+      options.persistedIdentityIndex ?? new NoopPersistedIdentityIndex();
+
+    this.seenRecentlyMs = options.seenRecentlyMs ?? 30000;
+    this.probeTimeoutMs = options.probeTimeoutMs ?? 1500;
+
+    /*
+      Runtime device storage.
+
+      devicesById:
+        runtimeDeviceId -> runtimeDevice
+
+      deviceIdByUsn:
+        usn -> runtimeDeviceId
+
+      deviceIdByGroupKey:
+        ip + friendlyName + manufacturer -> runtimeDeviceId
+
+      Runtime device stores its current groupKey. If that key changes after a
+      later observation, the old entry is removed from deviceIdByGroupKey before
+      the new one is stored.
+
+      offlineTimersByDeviceId:
+        runtimeDeviceId -> timeout handle
+    */
     this.devicesById = new Map();
     this.deviceIdByUsn = new Map();
     this.deviceIdByGroupKey = new Map();
-    this.seenRecentlyMs = options.seenRecentlyMs ?? 30000;
+    this.offlineTimersByDeviceId = new Map();
   }
 
-  addService(service) {
-    const candidate = toCandidate(service);
+  handleServiceForDeviceRegistry(service) {
+    /*
+      The incoming SSDP service response is first normalized into a single
+      observation.
 
-    if (!candidate.usn || !candidate.groupKey) {
+      Observation shape:
+
+        {
+          usn,
+          location,
+          friendlyName,
+          manufacturer,
+          ip,
+          seenAt
+        }
+
+      Observation is not a device. It is one message about one service.
+    */
+    const observation = this.normalizeService(service);
+
+    if (!observation) {
       return;
     }
 
-    const device = this.findOrCreateDevice(candidate);
-    const wasOnline = isOnline(device);
+    /*
+      Matching order:
 
-    device.name = device.name || candidate.name;
-    device.manufacturer = device.manufacturer || candidate.manufacturer;
-    device.modelName = device.modelName || candidate.modelName;
-    device.ip = candidate.ip || device.ip;
-    device.location = candidate.location || device.location;
-    device.lastSeenAt = Date.now();
-    device.onlineUntil = device.lastSeenAt + this.seenRecentlyMs;
-    device.usns.add(candidate.usn);
-    if (candidate.udn) device.udns.add(candidate.udn);
-    if (candidate.location) device.locations.add(candidate.location);
-    device.services.set(candidate.serviceType, {
-      serviceType: candidate.serviceType,
-      uniqueServiceName: candidate.usn,
-      expires: normalizeExpires(service.expires)
-    });
+      1. Strong runtime match by USN.
+      2. Weaker session-only match by group key.
+      3. No match: create a new runtime device.
 
-    this.deviceIdByUsn.set(candidate.usn, device.id);
-    this.deviceIdByGroupKey.set(candidate.groupKey, device.id);
-    this.scheduleOfflineUpdate(device);
+      We intentionally ignore UDN for now.
+    */
+    let device = this.findByUsn(observation.usn);
+    let matchedByGroupKey = false;
 
-    const snapshot = toSnapshot(device);
-    const fingerprint = getFingerprint(snapshot);
-
-    if (!wasOnline || fingerprint !== device.lastEmittedFingerprint) {
-      device.lastEmittedFingerprint = fingerprint;
-      this.emit("device", snapshot);
+    if (!device) {
+      device = this.findByGroupKey(observation);
+      matchedByGroupKey = device !== null;
     }
 
-    return snapshot;
+    if (!device) {
+      device = this.createRuntimeDevice(observation);
+    }
+
+    /*
+      Whether we found the device by USN, group key, or had to create it, we
+      still ask the persistence RAM mirror if this USN belongs to a saved
+      device.
+    */
+    const persistedDeviceId = this.persistedIdentityIndex.findDeviceIdByUsn(
+      observation.usn
+    );
+
+    if (persistedDeviceId) {
+      device.persistedDeviceId = persistedDeviceId;
+    }
+
+    const before = this.toFingerprint(device);
+
+    this.mergeObservationIntoDevice(device, observation);
+    this.indexObservationForDevice(device, observation);
+
+    /*
+      Important case:
+
+      - The incoming USN was not known in this registry.
+      - But the service matched an existing runtime device by group key.
+      - That runtime device is already linked to a persisted device.
+
+      In that case, every USN currently known for the runtime device should be
+      offered to the persistence identity index. That object decides which USNs
+      are new, updates its RAM map immediately, and queues DB writes.
+    */
+    if (matchedByGroupKey && device.persistedDeviceId) {
+      this.persistedIdentityIndex.learnUsnsForPersistedDevice({
+        persistedDeviceId: device.persistedDeviceId,
+        usns: device.usns
+      });
+    }
+
+    this.scheduleOfflineUpdate(device);
+
+    const after = this.toFingerprint(device);
+
+    if (before !== after) {
+      this.emit("device", this.toSnapshot(device));
+    }
   }
 
   listDevices() {
-    return [...this.devicesById.values()].map(toSnapshot);
+    return Array.from(this.devicesById.values()).map((device) => {
+      return this.toSnapshot(device);
+    });
   }
 
   clear() {
-    for (const device of this.devicesById.values()) {
-      clearTimeout(device.offlineTimer);
+    for (const timer of this.offlineTimersByDeviceId.values()) {
+      clearTimeout(timer);
     }
 
     this.devicesById.clear();
     this.deviceIdByUsn.clear();
     this.deviceIdByGroupKey.clear();
-    this.emit("clear");
+    this.offlineTimersByDeviceId.clear();
   }
 
-  findOrCreateDevice(candidate) {
-    const existingId = this.deviceIdByUsn.get(candidate.usn) ?? this.deviceIdByGroupKey.get(candidate.groupKey);
+  normalizeService(service) {
+    const usn = service.uniqueServiceName;
+    const location = this.normalizeLocation(service.location);
+    const ip = this.extractIp(location);
+    const friendlyName = this.normalizeString(service.details?.friendlyName);
+    const manufacturer = this.normalizeString(service.details?.manufacturer);
 
-    if (existingId) {
-      return this.devicesById.get(existingId);
+    if (!usn || !location || !ip) {
+      return null;
     }
 
+    return {
+      usn,
+      location,
+      friendlyName,
+      manufacturer,
+      ip,
+      seenAt: Date.now()
+    };
+  }
+
+  findByUsn(usn) {
+    const deviceId = this.deviceIdByUsn.get(usn);
+
+    if (!deviceId) {
+      return null;
+    }
+
+    return this.devicesById.get(deviceId) ?? null;
+  }
+
+  findByGroupKey(observation) {
+    const groupKey = this.toGroupKey(observation);
+
+    if (!groupKey) {
+      return null;
+    }
+
+    const deviceId = this.deviceIdByGroupKey.get(groupKey);
+
+    if (!deviceId) {
+      return null;
+    }
+
+    return this.devicesById.get(deviceId) ?? null;
+  }
+
+  createRuntimeDevice(observation) {
     const device = {
-      id: crypto.randomUUID(),
-      name: "",
-      manufacturer: "",
-      modelName: "",
-      ip: "",
-      location: "",
-      services: new Map(),
+      id: randomUUID(),
+      persistedDeviceId: null,
       usns: new Set(),
-      udns: new Set(),
-      locations: new Set(),
-      lastSeenAt: 0,
-      onlineUntil: 0,
-      offlineTimer: null,
-      lastEmittedFingerprint: ""
+      locationsByUsn: new Map(),
+      groupKey: null,
+      friendlyName: observation.friendlyName,
+      manufacturer: observation.manufacturer,
+      ip: observation.ip,
+      lastSeenAt: observation.seenAt,
+      onlineUntil: observation.seenAt + this.seenRecentlyMs,
+      online: true
     };
 
     this.devicesById.set(device.id, device);
+
     return device;
   }
 
+  mergeObservationIntoDevice(device, observation) {
+    device.usns.add(observation.usn);
+    device.locationsByUsn.set(observation.usn, observation.location);
+
+    device.friendlyName = observation.friendlyName ?? device.friendlyName;
+    device.manufacturer = observation.manufacturer ?? device.manufacturer;
+    device.ip = observation.ip;
+    device.lastSeenAt = observation.seenAt;
+    device.onlineUntil = observation.seenAt + this.seenRecentlyMs;
+    device.online = true;
+  }
+
+  indexObservationForDevice(device, observation) {
+    this.deviceIdByUsn.set(observation.usn, device.id);
+
+    const groupKey = this.toGroupKey(observation);
+
+    if (groupKey === device.groupKey) {
+      return;
+    }
+
+    if (device.groupKey) {
+      this.deviceIdByGroupKey.delete(device.groupKey);
+    }
+
+    device.groupKey = groupKey;
+
+    if (device.groupKey) {
+      this.deviceIdByGroupKey.set(device.groupKey, device.id);
+    }
+  }
+
   scheduleOfflineUpdate(device) {
-    clearTimeout(device.offlineTimer);
+    const existingTimer = this.offlineTimersByDeviceId.get(device.id);
+
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
 
     const delayMs = Math.max(device.onlineUntil - Date.now(), 0);
-    device.offlineTimer = setTimeout(() => {
-      if (isOnline(device)) {
-        return;
-      }
+    const scheduledOnlineUntil = device.onlineUntil;
 
-      const snapshot = toSnapshot(device);
-      const fingerprint = getFingerprint(snapshot);
+    const timer = setTimeout(() => {
+      this.offlineTimersByDeviceId.delete(device.id);
 
-      if (fingerprint !== device.lastEmittedFingerprint) {
-        device.lastEmittedFingerprint = fingerprint;
-        this.emit("device", snapshot);
-      }
+      this.verifyPresenceAfterSilence(device, scheduledOnlineUntil).catch(
+        (error) => {
+          this.emit("error", error);
+        }
+      );
     }, delayMs);
-  }
-}
 
-function toCandidate(service) {
-  const details = service.details?.device ?? {};
-  const location = service.location?.toString() ?? "";
-  const ip = service.location?.hostname ?? "";
-  const name = details.friendlyName ?? "";
-  const manufacturer = details.manufacturer ?? "";
-
-  return {
-    usn: service.uniqueServiceName,
-    udn: details.UDN ?? extractUdn(service.uniqueServiceName),
-    serviceType: service.serviceType,
-    location,
-    ip,
-    name,
-    manufacturer,
-    modelName: details.modelName ?? "",
-    groupKey: getGroupKey(ip, name, manufacturer)
-  };
-}
-
-function extractUdn(uniqueServiceName) {
-  if (!uniqueServiceName) {
-    return undefined;
+    this.offlineTimersByDeviceId.set(device.id, timer);
   }
 
-  return uniqueServiceName.split("::")[0];
-}
+  async verifyPresenceAfterSilence(device, scheduledOnlineUntil) {
+    if (this.isStalePresenceCheck(device, scheduledOnlineUntil)) {
+      return;
+    }
 
-function getGroupKey(ip, name, manufacturer) {
-  if (!ip || !name || !manufacturer) {
-    return "";
+    const location = this.getFirstLocation(device);
+    const reachable = location ? await this.probeLocation(location) : false;
+
+    if (this.isStalePresenceCheck(device, scheduledOnlineUntil)) {
+      return;
+    }
+
+    if (reachable) {
+      device.online = true;
+      device.onlineUntil = Date.now() + this.seenRecentlyMs;
+      this.scheduleOfflineUpdate(device);
+      return;
+    }
+
+    this.markOffline(device);
   }
 
-  return `${ip}|${name}|${manufacturer}`.toLowerCase();
-}
+  isStalePresenceCheck(device, scheduledOnlineUntil) {
+    return (
+      !this.devicesById.has(device.id) ||
+      device.onlineUntil !== scheduledOnlineUntil
+    );
+  }
 
-function toSnapshot(device) {
-  return {
-    id: device.id,
-    databaseId: null,
-    name: device.name,
-    manufacturer: device.manufacturer,
-    modelName: device.modelName,
-    ip: device.ip,
-    location: device.location,
-    online: device.onlineUntil > Date.now(),
-    lastSeenAt: device.lastSeenAt,
-    usns: [...device.usns],
-    udns: [...device.udns],
-    locations: [...device.locations],
-    services: [...device.services.values()]
-  };
-}
+  getFirstLocation(device) {
+    return device.locationsByUsn.values().next().value ?? null;
+  }
 
-function isOnline(device) {
-  return device.onlineUntil > Date.now();
-}
+  async probeLocation(location) {
+    try {
+      const response = await fetch(location, {
+        signal: AbortSignal.timeout(this.probeTimeoutMs)
+      });
 
-function normalizeExpires(expires) {
-  return Number.isFinite(expires) ? expires : 0;
-}
+      await response.body?.cancel();
 
-function getFingerprint(device) {
-  return JSON.stringify({
-    id: device.id,
-    databaseId: device.databaseId,
-    name: device.name,
-    manufacturer: device.manufacturer,
-    modelName: device.modelName,
-    ip: device.ip,
-    location: device.location,
-    online: device.online,
-    usns: [...device.usns].sort(),
-    udns: [...device.udns].sort(),
-    locations: [...device.locations].sort(),
-    services: device.services.map((service) => service.serviceType).sort()
-  });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  markOffline(device) {
+    if (!device.online) {
+      return;
+    }
+
+    device.online = false;
+    this.emit("device", this.toSnapshot(device));
+  }
+
+  toSnapshot(device) {
+    return {
+      id: device.id,
+      persistedDeviceId: device.persistedDeviceId,
+      friendlyName: device.friendlyName,
+      manufacturer: device.manufacturer,
+      ip: device.ip,
+      online: device.online,
+      lastSeenAt: device.lastSeenAt,
+      usns: Array.from(device.usns),
+      locationsByUsn: Object.fromEntries(device.locationsByUsn)
+    };
+  }
+
+  toFingerprint(device) {
+    return JSON.stringify(this.toSnapshot(device));
+  }
+
+  toGroupKey(observation) {
+    if (!observation.ip || !observation.friendlyName || !observation.manufacturer) {
+      return null;
+    }
+
+    return [
+      observation.ip,
+      observation.friendlyName,
+      observation.manufacturer
+    ]
+      .map((value) => value.trim().toLowerCase())
+      .join("|");
+  }
+
+  normalizeLocation(location) {
+    if (!location) {
+      return null;
+    }
+
+    return location.toString();
+  }
+
+  extractIp(location) {
+    try {
+      return new URL(location).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  normalizeString(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const normalized = value.trim();
+
+    return normalized.length > 0 ? normalized : null;
+  }
 }

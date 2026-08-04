@@ -12,7 +12,7 @@ export class DiscoveryCoordinator extends EventEmitter {
     this.startingSessionPromise = null;
 
     this.discoveryManager.on("service", (service) => {
-      this.deviceRegistry.addService(service);
+      this.deviceRegistry.handleServiceForDeviceRegistry(service);
     });
 
     this.discoveryManager.on("error", (error) => {

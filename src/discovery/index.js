@@ -8,7 +8,9 @@ export function createDiscoveryModule(options = {}) {
     searchInterval: options.searchInterval ?? 5000
   });
   const registry = new DeviceRegistry({
-    seenRecentlyMs: options.seenRecentlyMs ?? 30000
+    seenRecentlyMs: options.seenRecentlyMs ?? 30000,
+    probeTimeoutMs: options.probeTimeoutMs ?? 1500,
+    persistedIdentityIndex: options.persistedIdentityIndex
   });
   const coordinator = new DiscoveryCoordinator(manager, registry, {
     stopGraceMs: options.stopGraceMs ?? 5000
