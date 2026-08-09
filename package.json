@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "scan": "node scan.js",
     "server": "node server.js",
@@ -10,7 +13,10 @@
   },
   "dependencies": {
     "@achingbrain/ssdp": "^4.2.4",
-    "better-sqlite3": "^13.0.1",
+    "better-sqlite3": "12.11.1",
     "ws": "^8.18.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
   }
 }
