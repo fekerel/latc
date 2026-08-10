@@ -1,64 +1,41 @@
 # LATC
 
-Ilk adim: SSDP ile agdaki cihazlari bulmak.
+LATC, ağdaki DLNA/UPnP cihazlarla medya oynatma senaryoları üzerinde çalışılan deneysel bir projedir.
+
+Şu anda üzerinde çalışılan başlıca yetenekler şunlardır:
+
+- Ağdaki uyumlu cihazları SSDP ile keşfetmek ve kullanılabilirliklerini takip etmek
+- Bir DLNA controller olarak hedef cihazlara UPnP komutları göndermek
+- Hedef cihazda medya kaynaklarının URL'lerini açmak ve oynatmayı kontrol etmek
+- İnternet üzerindeki medya kaynaklarını hedef cihaza uygun biçimde proxy'lemek
+- Gerektiğinde FFmpeg kullanarak medya akışlarını dönüştürmek (transcode)
+
+Bu liste projenin nihai kapsamını veya gelecekteki mimari sınırlarını tanımlamaz; yalnızca güncel geliştirme odağını anlatır.
 
 ## Kurulum
-
-Terminalde bu dizinde:
 
 ```powershell
 npm install
 ```
 
-## Calistirma
+Proxy ve transcode işlevleri için FFmpeg'in sistemde kurulu ve komut satırından erişilebilir olması gerekir.
 
-```powershell
-npm run scan
-```
+## Çalıştırma
 
-Bu komut 5 saniye boyunca agdaki SSDP/UPnP cihazlarini dinler ve bulduklarini listeler.
-
-WebSocket sunucusu:
+Sunucuyu başlatmak için:
 
 ```powershell
 npm run server
 ```
 
-Discovery endpoint:
+Discovery WebSocket endpoint'i:
 
 ```text
 ws://localhost:3000/discovery
 ```
 
-Basit WebSocket istemcisi:
+Basit WebSocket istemcisini çalıştırmak için:
 
 ```powershell
 npm run client
 ```
-
-## Klasor Yapisi
-
-Kokte calistirma dosyalari ve proje metadatasi var:
-
-```text
-package.json
-scan.js
-server.js
-client.js
-```
-
-Asil uygulama kodu `src` altinda:
-
-```text
-src/app.js
-src/api/server.js
-src/api/websocket.js
-src/common/websocket.js
-src/discovery/index.js
-src/discovery/discovery-manager.js
-src/discovery/device-registry.js
-src/discovery/discovery-coordinator.js
-src/discovery/discovery-websocket-handler.js
-```
-
-`src/discovery/index.js`, discovery modulunun factory dosyasidir. Disariya manager instance'ini acmaz; `createDiscoveryModule()` ile modulun public fonksiyonlarini verir.
