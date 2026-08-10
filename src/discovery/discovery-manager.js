@@ -52,7 +52,6 @@ export class DiscoveryManager extends EventEmitter {
 
     try {
       this.bus = await ssdp({
-        cache: false,
         sockets: [
           {
             type: "udp4",
