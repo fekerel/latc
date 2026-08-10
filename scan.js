@@ -9,7 +9,7 @@ app.discovery.onError((error) => {
 });
 
 const unsubscribe = await app.discovery.subscribe((message) => {
-  if (message.type === "device") {
+  if (message.type === "device.added") {
     printDevice(message.device);
   }
 });
@@ -20,18 +20,14 @@ setTimeout(async () => {
 }, SCAN_SECONDS * 1000);
 
 function printDevice(device) {
-  console.log(`Bulundu: ${device.name || device.id}`);
+  console.log(`Bulundu: ${device.friendlyName || device.id}`);
 }
 
 function printResults(devices) {
   const rows = devices.map((device) => ({
     id: device.id,
-    name: device.name,
-    manufacturer: device.manufacturer,
-    modelName: device.modelName,
-    online: device.online,
-    usnCount: device.usns.length,
-    serviceCount: device.services.length
+    friendlyName: device.friendlyName,
+    ipAddress: device.ipAddress
   }));
 
   if (rows.length === 0) {

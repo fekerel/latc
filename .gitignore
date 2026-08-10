@@ -1,2 +1,4 @@
 /ssdp/
 /node_modules/
+/.vscode/
+scan.js
