@@ -19,6 +19,7 @@ export function createDiscoveryModule(options = {}) {
 
   return {
     handleWebSocket: websocketHandler.handle.bind(websocketHandler),
+    subscribe: coordinator.subscribe.bind(coordinator),
     listDevices: coordinator.listDevices.bind(coordinator),
     onError: (listener) => coordinator.on("error", listener)
   };

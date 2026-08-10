@@ -1,195 +1,294 @@
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import crypto from "node:crypto";
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export class DeviceRegistry extends EventEmitter {
   constructor(options = {}) {
     super();
 
+    this.seenRecentlyMs = options.seenRecentlyMs ?? 30000;
     this.devicesById = new Map();
     this.deviceIdByUsn = new Map();
-    this.deviceIdByGroupKey = new Map();
-    this.seenRecentlyMs = options.seenRecentlyMs ?? 30000;
+    this.deviceIdByFingerprint = new Map();
+    this.expiryTimersByDeviceId = new Map();
   }
 
   addService(service) {
-    const candidate = toCandidate(service);
+    const candidate = toCandidate(service, this.seenRecentlyMs);
 
-    if (!candidate.usn || !candidate.groupKey) {
+    if (!candidate.usn) {
       return;
     }
 
-    const device = this.findOrCreateDevice(candidate);
-    const wasOnline = isOnline(device);
+    let device = this.findDeviceByUsn(candidate.usn);
 
-    device.name = device.name || candidate.name;
-    device.manufacturer = device.manufacturer || candidate.manufacturer;
-    device.modelName = device.modelName || candidate.modelName;
-    device.ip = candidate.ip || device.ip;
-    device.location = candidate.location || device.location;
-    device.lastSeenAt = Date.now();
-    device.onlineUntil = device.lastSeenAt + this.seenRecentlyMs;
-    device.usns.add(candidate.usn);
-    if (candidate.udn) device.udns.add(candidate.udn);
-    if (candidate.location) device.locations.add(candidate.location);
-    device.services.set(candidate.serviceType, {
-      serviceType: candidate.serviceType,
-      uniqueServiceName: candidate.usn,
-      expires: normalizeExpires(service.expires)
+    if (!device && candidate.fingerprint) {
+      device = this.findDeviceByFingerprint(candidate.fingerprint);
+    }
+
+    const isNew = !device;
+
+    if (!device) {
+      device = createDevice(candidate);
+      this.devicesById.set(device.id, device);
+    }
+
+    const wasOnline = device.online;
+    const previousSnapshot = toSnapshot(device);
+    const previousFingerprint = createDeviceFingerprint(
+      device.friendlyName,
+      device.ipAddress
+    );
+
+    if (candidate.friendlyName) {
+      device.friendlyName = candidate.friendlyName;
+    }
+
+    if (candidate.ipAddress) {
+      device.ipAddress = candidate.ipAddress;
+    }
+
+    device.online = true;
+    device.services.set(candidate.usn, {
+      online: true,
+      lastSeenAt: candidate.seenAt,
+      expiresAt: candidate.expiresAt
     });
 
     this.deviceIdByUsn.set(candidate.usn, device.id);
-    this.deviceIdByGroupKey.set(candidate.groupKey, device.id);
-    this.scheduleOfflineUpdate(device);
+    this.reindexFingerprint(device, previousFingerprint);
+    this.scheduleNextExpiry(device);
 
     const snapshot = toSnapshot(device);
-    const fingerprint = getFingerprint(snapshot);
 
-    if (!wasOnline || fingerprint !== device.lastEmittedFingerprint) {
-      device.lastEmittedFingerprint = fingerprint;
-      this.emit("device", snapshot);
+    if (isNew || !wasOnline) {
+      this.emit("device:added", snapshot);
+    } else if (!snapshotsEqual(previousSnapshot, snapshot)) {
+      this.emit("device:updated", snapshot);
     }
 
     return snapshot;
   }
 
+  removeService(usn, reason = "byebye") {
+    const device = this.findDeviceByUsn(usn);
+    const service = device?.services.get(usn);
+
+    if (!device || !service || !service.online) {
+      return;
+    }
+
+    service.online = false;
+    service.expiresAt = Date.now();
+
+    this.updateDeviceAvailability(device, reason);
+  }
+
   listDevices() {
-    return [...this.devicesById.values()].map(toSnapshot);
+    return [...this.devicesById.values()]
+      .filter((device) => device.online)
+      .map(toSnapshot);
   }
 
   clear() {
-    for (const device of this.devicesById.values()) {
-      clearTimeout(device.offlineTimer);
+    for (const timer of this.expiryTimersByDeviceId.values()) {
+      clearTimeout(timer);
     }
 
-    this.devicesById.clear();
+    this.expiryTimersByDeviceId.clear();
+    this.deviceIdByFingerprint.clear();
     this.deviceIdByUsn.clear();
-    this.deviceIdByGroupKey.clear();
-    this.emit("clear");
+    this.devicesById.clear();
   }
 
-  findOrCreateDevice(candidate) {
-    const existingId = this.deviceIdByUsn.get(candidate.usn) ?? this.deviceIdByGroupKey.get(candidate.groupKey);
+  findDeviceByUsn(usn) {
+    const deviceId = this.deviceIdByUsn.get(usn);
+    return deviceId ? this.devicesById.get(deviceId) : undefined;
+  }
 
-    if (existingId) {
-      return this.devicesById.get(existingId);
+  findDeviceByFingerprint(fingerprint) {
+    const deviceId = this.deviceIdByFingerprint.get(fingerprint);
+    return deviceId ? this.devicesById.get(deviceId) : undefined;
+  }
+
+  reindexFingerprint(device, previousFingerprint) {
+    const nextFingerprint = createDeviceFingerprint(
+      device.friendlyName,
+      device.ipAddress
+    );
+
+    if (
+      previousFingerprint &&
+      previousFingerprint !== nextFingerprint &&
+      this.deviceIdByFingerprint.get(previousFingerprint) === device.id
+    ) {
+      this.deviceIdByFingerprint.delete(previousFingerprint);
     }
 
-    const device = {
-      id: crypto.randomUUID(),
-      name: "",
-      manufacturer: "",
-      modelName: "",
-      ip: "",
-      location: "",
-      services: new Map(),
-      usns: new Set(),
-      udns: new Set(),
-      locations: new Set(),
-      lastSeenAt: 0,
-      onlineUntil: 0,
-      offlineTimer: null,
-      lastEmittedFingerprint: ""
-    };
-
-    this.devicesById.set(device.id, device);
-    return device;
+    if (nextFingerprint) {
+      this.deviceIdByFingerprint.set(nextFingerprint, device.id);
+    }
   }
 
-  scheduleOfflineUpdate(device) {
-    clearTimeout(device.offlineTimer);
+  scheduleNextExpiry(device) {
+    this.clearExpiryTimer(device.id);
 
-    const delayMs = Math.max(device.onlineUntil - Date.now(), 0);
-    device.offlineTimer = setTimeout(() => {
-      if (isOnline(device)) {
+    const onlineServices = [...device.services.values()].filter(
+      (service) => service.online
+    );
+
+    if (onlineServices.length === 0) {
+      return;
+    }
+
+    const nextExpiry = Math.min(
+      ...onlineServices.map((service) => service.expiresAt)
+    );
+    const delayMs = Math.min(
+      Math.max(nextExpiry - Date.now(), 0),
+      MAX_TIMER_DELAY_MS
+    );
+
+    const timer = setTimeout(() => {
+      if (this.expiryTimersByDeviceId.get(device.id) !== timer) {
         return;
       }
 
-      const snapshot = toSnapshot(device);
-      const fingerprint = getFingerprint(snapshot);
-
-      if (fingerprint !== device.lastEmittedFingerprint) {
-        device.lastEmittedFingerprint = fingerprint;
-        this.emit("device", snapshot);
-      }
+      this.expiryTimersByDeviceId.delete(device.id);
+      this.expireServices(device.id);
     }, delayMs);
+
+    this.expiryTimersByDeviceId.set(device.id, timer);
+  }
+
+  expireServices(deviceId) {
+    const device = this.devicesById.get(deviceId);
+
+    if (!device) {
+      return;
+    }
+
+    const now = Date.now();
+
+    for (const service of device.services.values()) {
+      if (service.online && service.expiresAt <= now) {
+        service.online = false;
+      }
+    }
+
+    this.updateDeviceAvailability(device, "expired");
+  }
+
+  updateDeviceAvailability(device, reason) {
+    const hasOnlineService = [...device.services.values()].some(
+      (service) => service.online
+    );
+
+    if (hasOnlineService) {
+      this.scheduleNextExpiry(device);
+      return;
+    }
+
+    this.clearExpiryTimer(device.id);
+
+    if (!device.online) {
+      return;
+    }
+
+    device.online = false;
+    this.emit("device:removed", {
+      deviceId: device.id,
+      reason
+    });
+  }
+
+  clearExpiryTimer(deviceId) {
+    const timer = this.expiryTimersByDeviceId.get(deviceId);
+
+    if (timer) {
+      clearTimeout(timer);
+      this.expiryTimersByDeviceId.delete(deviceId);
+    }
   }
 }
 
-function toCandidate(service) {
-  const details = service.details?.device ?? {};
-  const location = service.location?.toString() ?? "";
-  const ip = service.location?.hostname ?? "";
-  const name = details.friendlyName ?? "";
-  const manufacturer = details.manufacturer ?? "";
-
+function createDevice(candidate) {
   return {
-    usn: service.uniqueServiceName,
-    udn: details.UDN ?? extractUdn(service.uniqueServiceName),
-    serviceType: service.serviceType,
-    location,
-    ip,
-    name,
-    manufacturer,
-    modelName: details.modelName ?? "",
-    groupKey: getGroupKey(ip, name, manufacturer)
+    id: randomUUID(),
+    friendlyName: candidate.friendlyName,
+    ipAddress: candidate.ipAddress,
+    online: false,
+    services: new Map()
   };
 }
 
-function extractUdn(uniqueServiceName) {
-  if (!uniqueServiceName) {
-    return undefined;
-  }
+function toCandidate(service, seenRecentlyMs) {
+  const seenAt = Date.now();
+  const expiresAt = Number.isFinite(service.expires)
+    ? service.expires
+    : seenAt + seenRecentlyMs;
+  const friendlyName = normalizeDisplayName(
+    service.details?.device?.friendlyName
+  );
+  const ipAddress = extractIpAddress(service.location);
 
-  return uniqueServiceName.split("::")[0];
+  return {
+    usn: service.uniqueServiceName ?? "",
+    friendlyName,
+    ipAddress,
+    fingerprint: createDeviceFingerprint(friendlyName, ipAddress),
+    seenAt,
+    expiresAt
+  };
 }
 
-function getGroupKey(ip, name, manufacturer) {
-  if (!ip || !name || !manufacturer) {
+function extractIpAddress(location) {
+  if (location instanceof URL) {
+    return location.hostname;
+  }
+
+  if (!location) {
     return "";
   }
 
-  return `${ip}|${name}|${manufacturer}`.toLowerCase();
+  try {
+    return new URL(location).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function normalizeDisplayName(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function normalizeFriendlyName(value) {
+  return normalizeDisplayName(value).toLowerCase();
+}
+
+function createDeviceFingerprint(friendlyName, ipAddress) {
+  const normalizedName = normalizeFriendlyName(friendlyName);
+
+  if (!normalizedName || !ipAddress) {
+    return "";
+  }
+
+  return `${normalizedName}\u0000${ipAddress}`;
 }
 
 function toSnapshot(device) {
   return {
     id: device.id,
-    databaseId: null,
-    name: device.name,
-    manufacturer: device.manufacturer,
-    modelName: device.modelName,
-    ip: device.ip,
-    location: device.location,
-    online: device.onlineUntil > Date.now(),
-    lastSeenAt: device.lastSeenAt,
-    usns: [...device.usns],
-    udns: [...device.udns],
-    locations: [...device.locations],
-    services: [...device.services.values()]
+    friendlyName: device.friendlyName,
+    ipAddress: device.ipAddress
   };
 }
 
-function isOnline(device) {
-  return device.onlineUntil > Date.now();
-}
-
-function normalizeExpires(expires) {
-  return Number.isFinite(expires) ? expires : 0;
-}
-
-function getFingerprint(device) {
-  return JSON.stringify({
-    id: device.id,
-    databaseId: device.databaseId,
-    name: device.name,
-    manufacturer: device.manufacturer,
-    modelName: device.modelName,
-    ip: device.ip,
-    location: device.location,
-    online: device.online,
-    usns: [...device.usns].sort(),
-    udns: [...device.udns].sort(),
-    locations: [...device.locations].sort(),
-    services: device.services.map((service) => service.serviceType).sort()
-  });
+function snapshotsEqual(left, right) {
+  return (
+    left.id === right.id &&
+    left.friendlyName === right.friendlyName &&
+    left.ipAddress === right.ipAddress
+  );
 }

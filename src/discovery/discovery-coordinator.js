@@ -15,14 +15,33 @@ export class DiscoveryCoordinator extends EventEmitter {
       this.deviceRegistry.addService(service);
     });
 
+    this.discoveryManager.on("service:remove", (usn) => {
+      this.deviceRegistry.removeService(usn);
+    });
+
     this.discoveryManager.on("error", (error) => {
       this.emit("error", error);
     });
 
-    this.deviceRegistry.on("device", (device) => {
+    this.deviceRegistry.on("device:added", (device) => {
       this.broadcast({
-        type: "device",
+        type: "device.added",
         device
+      });
+    });
+
+    this.deviceRegistry.on("device:updated", (device) => {
+      this.broadcast({
+        type: "device.updated",
+        device
+      });
+    });
+
+    this.deviceRegistry.on("device:removed", ({ deviceId, reason }) => {
+      this.broadcast({
+        type: "device.removed",
+        deviceId,
+        reason
       });
     });
   }
