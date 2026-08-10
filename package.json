@@ -9,7 +9,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@achingbrain/ssdp": "^4.2.4",
+    "@achingbrain/ssdp": "github:fekerel/ssdp#main",
     "ws": "^8.18.0"
   }
 }
