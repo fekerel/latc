@@ -4,42 +4,51 @@ import { DeviceRegistry } from "../src/discovery/device-registry.js";
 
 test("groups different USNs by friendly name and IP address", (t) => {
   const registry = new DeviceRegistry();
+  const runId = "run-1";
   t.after(() => registry.clear());
 
   const added = [];
-  registry.on("device:added", (device) => added.push(device));
+  registry.on("device:added", (event) => added.push(event));
 
-  registry.addService(createService({ usn: "service-a" }));
-  registry.addService(createService({ usn: "service-b" }));
+  registry.addService(createService({ usn: "service-a" }), runId);
+  registry.addService(createService({ usn: "service-b" }), runId);
 
   assert.equal(added.length, 1);
-  assert.equal(registry.listDevices().length, 1);
-  assert.equal(registry.deviceIdByUsn.get("service-a"), added[0].id);
-  assert.equal(registry.deviceIdByUsn.get("service-b"), added[0].id);
+  assert.equal(added[0].runId, runId);
+  assert.equal(registry.listDevices(runId).length, 1);
+  assert.equal(registry.deviceIdByUsn.get("service-a"), added[0].device.id);
+  assert.equal(registry.deviceIdByUsn.get("service-b"), added[0].device.id);
 });
 
 test("keeps the device ID when a known USN arrives from a different IP", (t) => {
   const registry = new DeviceRegistry();
+  const runId = "run-1";
   t.after(() => registry.clear());
 
   const updated = [];
-  const firstSnapshot = registry.addService(createService({ usn: "service-a" }));
-  registry.on("device:updated", (device) => updated.push(device));
+  const firstSnapshot = registry.addService(
+    createService({ usn: "service-a" }),
+    runId
+  );
+  registry.on("device:updated", (event) => updated.push(event));
 
   registry.addService(
     createService({
       usn: "service-a",
       ipAddress: "192.168.1.31"
-    })
+    }),
+    runId
   );
 
   assert.equal(updated.length, 1);
-  assert.equal(updated[0].id, firstSnapshot.id);
-  assert.equal(updated[0].ipAddress, "192.168.1.31");
+  assert.equal(updated[0].runId, runId);
+  assert.equal(updated[0].device.id, firstSnapshot.id);
+  assert.equal(updated[0].device.ipAddress, "192.168.1.31");
 });
 
 test("stores and refreshes the service location and type", (t) => {
   const registry = new DeviceRegistry();
+  const runId = "run-1";
   t.after(() => registry.clear());
 
   const device = registry.addService(
@@ -47,7 +56,8 @@ test("stores and refreshes the service location and type", (t) => {
       usn: "service-a",
       locationPath: "/first-description.xml",
       serviceType: "urn:schemas-upnp-org:device:MediaRenderer:1"
-    })
+    }),
+    runId
   );
 
   let service = registry.devicesById.get(device.id).services.get("service-a");
@@ -66,7 +76,8 @@ test("stores and refreshes the service location and type", (t) => {
       usn: "service-a",
       locationPath: "/second-description.xml",
       serviceType: "urn:schemas-upnp-org:service:AVTransport:1"
-    })
+    }),
+    runId
   );
 
   service = registry.devicesById.get(device.id).services.get("service-a");
@@ -81,68 +92,59 @@ test("stores and refreshes the service location and type", (t) => {
   );
 });
 
-test("removes a device only after its last online service is removed", (t) => {
-  const registry = new DeviceRegistry();
-  t.after(() => registry.clear());
-
-  const removed = [];
-  registry.on("device:removed", (event) => removed.push(event));
-
-  const device = registry.addService(createService({ usn: "service-a" }));
-  registry.addService(createService({ usn: "service-b" }));
-
-  registry.removeService("service-a");
-  assert.equal(removed.length, 0);
-  assert.equal(registry.listDevices().length, 1);
-
-  registry.removeService("service-b");
-  assert.deepEqual(removed, [
-    {
-      deviceId: device.id,
-      reason: "byebye"
-    }
-  ]);
-  assert.deepEqual(registry.listDevices(), []);
-});
-
-test("adds an offline device again with the same ID", (t) => {
+test("keeps records across runs and lists only the requested run", (t) => {
   const registry = new DeviceRegistry();
   t.after(() => registry.clear());
 
   const added = [];
-  registry.on("device:added", (device) => added.push(device));
+  registry.on("device:added", (event) => added.push(event));
 
-  registry.addService(createService({ usn: "service-a" }));
-  registry.removeService("service-a");
-  registry.addService(createService({ usn: "service-a" }));
-
-  assert.equal(added.length, 2);
-  assert.equal(added[1].id, added[0].id);
-});
-
-test("expires a device when all of its services reach max-age", async (t) => {
-  const registry = new DeviceRegistry();
-  t.after(() => registry.clear());
-
-  const removed = [];
-  registry.on("device:removed", (event) => removed.push(event));
-
-  const device = registry.addService(
-    createService({
-      usn: "service-a",
-      expires: Date.now()
-    })
+  const firstSnapshot = registry.addService(
+    createService({ usn: "service-a" }),
+    "run-1"
   );
 
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(registry.listDevices("run-2"), []);
 
-  assert.deepEqual(removed, [
-    {
-      deviceId: device.id,
-      reason: "expired"
-    }
-  ]);
-  assert.deepEqual(registry.listDevices(), []);
+  const secondSnapshot = registry.addService(
+    createService({ usn: "service-a" }),
+    "run-2"
+  );
+
+  assert.equal(secondSnapshot.id, firstSnapshot.id);
+  assert.equal(registry.devicesById.size, 1);
+  assert.deepEqual(registry.listDevices("run-1"), []);
+  assert.deepEqual(registry.listDevices("run-2"), [secondSnapshot]);
+  assert.deepEqual(
+    added.map(({ runId, device }) => ({ runId, deviceId: device.id })),
+    [
+      { runId: "run-1", deviceId: firstSnapshot.id },
+      { runId: "run-2", deviceId: firstSnapshot.id }
+    ]
+  );
+});
+
+test("does not add the same device twice in one run", (t) => {
+  const registry = new DeviceRegistry();
+  const runId = "run-1";
+  t.after(() => registry.clear());
+
+  const added = [];
+  registry.on("device:added", (event) => added.push(event));
+
+  registry.addService(createService({ usn: "service-a" }), runId);
+  registry.addService(createService({ usn: "service-a" }), runId);
+
+  assert.equal(added.length, 1);
+});
+
+test("requires a run ID when adding a service", () => {
+  const registry = new DeviceRegistry();
+
+  assert.throws(
+    () => registry.addService(createService({ usn: "service-a" })),
+    /runId is required/
+  );
 });
 
 function createService({
@@ -150,8 +152,7 @@ function createService({
   friendlyName = "Living Room TV",
   ipAddress = "192.168.1.24",
   locationPath = "/description.xml",
-  serviceType = "urn:schemas-upnp-org:device:MediaRenderer:1",
-  expires = Date.now() + 60000
+  serviceType = "urn:schemas-upnp-org:device:MediaRenderer:1"
 }) {
   return {
     uniqueServiceName: usn,
@@ -161,7 +162,6 @@ function createService({
       device: {
         friendlyName
       }
-    },
-    expires
+    }
   };
 }

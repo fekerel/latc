@@ -13,19 +13,19 @@ export class DiscoveryCoordinator extends EventEmitter {
     this.stopTimer = null;
     this.startingSessionPromise = null;
 
-    this.discoveryManager.on("service", (service) => {
-      if (!this.currentRunId) {
+    this.discoveryManager.on("service", ({ runId, service }) => {
+      if (runId !== this.currentRunId) {
         return;
       }
 
-      this.deviceRegistry.addService(service, this.currentRunId);
+      this.deviceRegistry.addService(service, runId);
     });
 
     this.discoveryManager.on("error", (error) => {
       this.emit("error", error);
     });
 
-    this.deviceRegistry.on("device:added", ({runId, device}) => {
+    this.deviceRegistry.on("device:added", ({ runId, device }) => {
       if (runId !== this.currentRunId) {
         return;
       }
@@ -36,7 +36,7 @@ export class DiscoveryCoordinator extends EventEmitter {
       });
     });
 
-    this.deviceRegistry.on("device:updated", ({runId, device}) => {
+    this.deviceRegistry.on("device:updated", ({ runId, device }) => {
       if (runId !== this.currentRunId) {
         return;
       }
@@ -73,7 +73,7 @@ export class DiscoveryCoordinator extends EventEmitter {
   }
 
   listDevices() {
-    if(!this.currentRunId) {
+    if (!this.currentRunId) {
       return [];
     }
 
@@ -109,7 +109,7 @@ export class DiscoveryCoordinator extends EventEmitter {
     this.currentRunId = runId;
 
     try {
-      await this.discoveryManager.start();
+      await this.discoveryManager.start(runId);
     } catch (error) {
       if (this.currentRunId === runId) {
         this.currentRunId = previousRunId;

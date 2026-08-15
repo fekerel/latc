@@ -17,7 +17,11 @@ export class DiscoveryManager extends EventEmitter {
     return this.bus !== null;
   }
 
-  async start() {
+  async start(runId) {
+    if (!runId) {
+      throw new TypeError("runId is required");
+    }
+
     while (true) {
       if (this.bus) {
         return;
@@ -35,7 +39,7 @@ export class DiscoveryManager extends EventEmitter {
       await this.stoppingPromise;
     }
 
-    const startingPromise = this.doStart();
+    const startingPromise = this.doStart(runId);
     this.startingPromise = startingPromise;
 
     try {
@@ -47,11 +51,14 @@ export class DiscoveryManager extends EventEmitter {
     }
   }
 
-  async doStart() {
-    this.abortController = new AbortController();
+  async doStart(runId) {
+    const abortController = new AbortController();
+    let bus;
+
+    this.abortController = abortController;
 
     try {
-      this.bus = await ssdp({
+      bus = await ssdp({
         sockets: [
           {
             type: "udp4",
@@ -62,21 +69,29 @@ export class DiscoveryManager extends EventEmitter {
           }
         ]
       });
+      this.bus = bus;
     } catch (error) {
       this.abortController = null;
       this.bus = null;
       throw error;
     }
 
-    this.bus.on("error", (error) => {
+    bus.on("error", (error) => {
       this.emit("error", error);
     });
 
-    this.bus.on("service:update", (service) => {
-      this.emit("service", service);
+    bus.on("service:update", (service) => {
+      this.emit("service", {
+        runId,
+        service
+      });
     });
 
-    this.discoveryPromise = this.discoverLoop().catch((error) => {
+    this.discoveryPromise = this.discoverLoop(
+      bus,
+      abortController.signal,
+      runId
+    ).catch((error) => {
       if (error.name !== "AbortError") {
         this.emit("error", error);
       }
@@ -105,34 +120,41 @@ export class DiscoveryManager extends EventEmitter {
     }
 
     const bus = this.bus;
+    const abortController = this.abortController;
+    const discoveryPromise = this.discoveryPromise;
 
     if (!bus) {
       return;
     }
 
-    this.abortController?.abort();
+    abortController?.abort();
     this.abortController = null;
     this.bus = null;
 
     try {
-      await this.discoveryPromise;
+      await discoveryPromise;
     } catch (error) {
       if (error.name !== "AbortError") {
         throw error;
       }
     } finally {
-      this.discoveryPromise = null;
+      if (this.discoveryPromise === discoveryPromise) {
+        this.discoveryPromise = null;
+      }
     }
 
     await bus.stop();
   }
 
-  async discoverLoop() {
-    for await (const service of this.bus.discover({
+  async discoverLoop(bus, signal, runId) {
+    for await (const service of bus.discover({
       searchInterval: this.searchInterval,
-      signal: this.abortController.signal
+      signal
     })) {
-      this.emit("service", service);
+      this.emit("service", {
+        runId,
+        service
+      });
     }
   }
 }

@@ -49,11 +49,11 @@ export class DeviceRegistry extends EventEmitter {
     }
 
     const firstSeenInRun = device.lastSeenRunId !== runId;
-    device.lastSeenRunId = runId; 
+    device.lastSeenRunId = runId;
 
     device.services.set(candidate.usn, {
       location: candidate.location,
-      serviceType: candidate.serviceType,
+      serviceType: candidate.serviceType
     });
 
     this.deviceIdByUsn.set(candidate.usn, device.id);
@@ -63,12 +63,12 @@ export class DeviceRegistry extends EventEmitter {
 
     if (isNew || firstSeenInRun) {
       this.emit("device:added", {
-        runId, 
+        runId,
         device: snapshot
       });
     } else if (!snapshotsEqual(previousSnapshot, snapshot)) {
       this.emit("device:updated", {
-        runId, 
+        runId,
         device: snapshot
       });
     }
@@ -145,7 +145,7 @@ function toCandidate(service) {
       typeof service.serviceType === "string" ? service.serviceType : "",
     friendlyName,
     ipAddress,
-    fingerprint: createDeviceFingerprint(friendlyName, ipAddress),
+    fingerprint: createDeviceFingerprint(friendlyName, ipAddress)
   };
 }
 
