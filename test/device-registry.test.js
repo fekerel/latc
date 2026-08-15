@@ -138,6 +138,26 @@ test("does not add the same device twice in one run", (t) => {
   assert.equal(added.length, 1);
 });
 
+test("gets the retained live device by registry ID", (t) => {
+  const registry = new DeviceRegistry();
+  const runId = "run-1";
+  t.after(() => registry.clear());
+
+  const snapshot = registry.addService(
+    createService({ usn: "service-a" }),
+    runId
+  );
+  const device = registry.getDeviceById(snapshot.id);
+
+  assert.equal(device, registry.devicesById.get(snapshot.id));
+  assert.equal(device.services.has("service-a"), true);
+
+  registry.addService(createService({ usn: "service-b" }), runId);
+
+  assert.equal(device.services.has("service-b"), true);
+  assert.equal(registry.getDeviceById("unknown-device"), undefined);
+});
+
 test("requires a run ID when adding a service", () => {
   const registry = new DeviceRegistry();
 

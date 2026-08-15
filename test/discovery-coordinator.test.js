@@ -67,21 +67,67 @@ test("keeps the last run list after stop and ignores stale run events", async (t
   unsubscribeSecond();
 });
 
+test("stops only after the last discovery lease is released", async (t) => {
+  const manager = new FakeDiscoveryManager();
+  const registry = new DeviceRegistry();
+  const coordinator = new DiscoveryCoordinator(manager, registry, {
+    stopGraceMs: 0
+  });
+  t.after(async () => {
+    await manager.stop();
+    registry.clear();
+  });
+
+  const releaseFirst = await coordinator.acquireDiscovery();
+  const releaseSecond = await coordinator.acquireDiscovery();
+
+  assert.equal(manager.startCount, 1);
+  assert.equal(manager.running, true);
+
+  releaseFirst();
+  await delay(10);
+
+  assert.equal(manager.running, true);
+  assert.equal(manager.stopCount, 0);
+
+  releaseSecond();
+  await delay(10);
+
+  assert.equal(manager.running, false);
+  assert.equal(manager.stopCount, 1);
+
+  releaseSecond();
+  await delay(10);
+
+  assert.equal(manager.stopCount, 1);
+});
+
 class FakeDiscoveryManager extends EventEmitter {
   constructor() {
     super();
     this.running = false;
     this.runId = null;
+    this.startCount = 0;
+    this.stopCount = 0;
   }
 
   async start(runId) {
+    this.startCount++;
     this.runId = runId;
     this.running = true;
   }
 
   async stop() {
+    if (this.running) {
+      this.stopCount++;
+    }
+
     this.running = false;
   }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createService() {

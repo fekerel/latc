@@ -10,6 +10,7 @@ export class DiscoveryCoordinator extends EventEmitter {
     this.deviceRegistry = deviceRegistry;
     this.stopGraceMs = options.stopGraceMs ?? 5000;
     this.subscribers = new Set();
+    this.discoveryUsers = new Set();
     this.stopTimer = null;
     this.startingSessionPromise = null;
 
@@ -49,25 +50,64 @@ export class DiscoveryCoordinator extends EventEmitter {
   }
 
   async subscribe(listener) {
-    this.clearStopTimer();
-    await this.ensureDiscoverySession();
+    const releaseDiscovery = await this.acquireDiscovery();
 
-    this.subscribers.add(listener);
+    try {
+      this.subscribers.add(listener);
 
-    listener({
-      type: "snapshot",
-      devices: this.listDevices()
-    });
+      listener({
+        type: "snapshot",
+        devices: this.listDevices()
+      });
+    } catch (error) {
+      this.subscribers.delete(listener);
+      releaseDiscovery();
+      throw error;
+    }
+
+    let unsubscribed = false;
 
     return () => {
-      this.unsubscribe(listener);
+      if (unsubscribed) {
+        return;
+      }
+
+      unsubscribed = true;
+      this.subscribers.delete(listener);
+      releaseDiscovery();
     };
   }
 
-  unsubscribe(listener) {
-    this.subscribers.delete(listener);
+  async acquireDiscovery() {
+    const token = Symbol("discovery-user");
+    this.discoveryUsers.add(token);
+    this.clearStopTimer();
 
-    if (this.subscribers.size === 0) {
+    try {
+      await this.ensureDiscoverySession();
+    } catch (error) {
+      this.releaseDiscovery(token);
+      throw error;
+    }
+
+    let released = false;
+
+    return () => {
+      if (released) {
+        return;
+      }
+
+      released = true;
+      this.releaseDiscovery(token);
+    };
+  }
+
+  releaseDiscovery(token) {
+    if (!this.discoveryUsers.delete(token)) {
+      return;
+    }
+
+    if (this.discoveryUsers.size === 0 && this.discoveryManager.running) {
       this.scheduleStop();
     }
   }
@@ -126,10 +166,19 @@ export class DiscoveryCoordinator extends EventEmitter {
   }
 
   scheduleStop() {
+    if (this.discoveryUsers.size > 0) {
+      return;
+    }
+
     this.clearStopTimer();
 
     this.stopTimer = setTimeout(() => {
       this.stopTimer = null;
+
+      if (this.discoveryUsers.size > 0) {
+        return;
+      }
+
       this.discoveryManager.stop().catch((error) => {
         this.emit("error", error);
       });

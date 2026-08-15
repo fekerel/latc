@@ -86,6 +86,10 @@ export class DeviceRegistry extends EventEmitter {
       .map(toSnapshot);
   }
 
+  getDeviceById(deviceId) {
+    return this.devicesById.get(deviceId);
+  }
+
   clear() {
     this.deviceIdByFingerprint.clear();
     this.deviceIdByUsn.clear();
