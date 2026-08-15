@@ -51,6 +51,8 @@ export class DeviceRegistry extends EventEmitter {
 
     device.online = true;
     device.services.set(candidate.usn, {
+      location: candidate.location,
+      serviceType: candidate.serviceType,
       online: true,
       lastSeenAt: candidate.seenAt,
       expiresAt: candidate.expiresAt
@@ -235,12 +237,31 @@ function toCandidate(service, seenRecentlyMs) {
 
   return {
     usn: service.uniqueServiceName ?? "",
+    location: normalizeLocationHref(service.location),
+    serviceType:
+      typeof service.serviceType === "string" ? service.serviceType : "",
     friendlyName,
     ipAddress,
     fingerprint: createDeviceFingerprint(friendlyName, ipAddress),
     seenAt,
     expiresAt
   };
+}
+
+function normalizeLocationHref(location) {
+  if (location instanceof URL) {
+    return location.href;
+  }
+
+  if (!location) {
+    return "";
+  }
+
+  try {
+    return new URL(location).href;
+  } catch {
+    return "";
+  }
 }
 
 function extractIpAddress(location) {

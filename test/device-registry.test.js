@@ -38,6 +38,49 @@ test("keeps the device ID when a known USN arrives from a different IP", (t) => 
   assert.equal(updated[0].ipAddress, "192.168.1.31");
 });
 
+test("stores and refreshes the service location and type", (t) => {
+  const registry = new DeviceRegistry();
+  t.after(() => registry.clear());
+
+  const device = registry.addService(
+    createService({
+      usn: "service-a",
+      locationPath: "/first-description.xml",
+      serviceType: "urn:schemas-upnp-org:device:MediaRenderer:1"
+    })
+  );
+
+  let service = registry.devicesById.get(device.id).services.get("service-a");
+
+  assert.equal(
+    service.location,
+    "http://192.168.1.24:8080/first-description.xml"
+  );
+  assert.equal(
+    service.serviceType,
+    "urn:schemas-upnp-org:device:MediaRenderer:1"
+  );
+
+  registry.addService(
+    createService({
+      usn: "service-a",
+      locationPath: "/second-description.xml",
+      serviceType: "urn:schemas-upnp-org:service:AVTransport:1"
+    })
+  );
+
+  service = registry.devicesById.get(device.id).services.get("service-a");
+
+  assert.equal(
+    service.location,
+    "http://192.168.1.24:8080/second-description.xml"
+  );
+  assert.equal(
+    service.serviceType,
+    "urn:schemas-upnp-org:service:AVTransport:1"
+  );
+});
+
 test("removes a device only after its last online service is removed", (t) => {
   const registry = new DeviceRegistry();
   t.after(() => registry.clear());
@@ -106,11 +149,14 @@ function createService({
   usn,
   friendlyName = "Living Room TV",
   ipAddress = "192.168.1.24",
+  locationPath = "/description.xml",
+  serviceType = "urn:schemas-upnp-org:device:MediaRenderer:1",
   expires = Date.now() + 60000
 }) {
   return {
     uniqueServiceName: usn,
-    location: new URL(`http://${ipAddress}:8080/description.xml`),
+    location: new URL(`http://${ipAddress}:8080${locationPath}`),
+    serviceType,
     details: {
       device: {
         friendlyName
