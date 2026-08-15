@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 export class DiscoveryCoordinator extends EventEmitter {
   constructor(discoveryManager, deviceRegistry, options = {}) {
     super();
 
+    this.currentRunId = null;
     this.discoveryManager = discoveryManager;
     this.deviceRegistry = deviceRegistry;
     this.stopGraceMs = options.stopGraceMs ?? 5000;
@@ -12,36 +14,36 @@ export class DiscoveryCoordinator extends EventEmitter {
     this.startingSessionPromise = null;
 
     this.discoveryManager.on("service", (service) => {
-      this.deviceRegistry.addService(service);
-    });
+      if (!this.currentRunId) {
+        return;
+      }
 
-    this.discoveryManager.on("service:remove", (usn) => {
-      this.deviceRegistry.removeService(usn);
+      this.deviceRegistry.addService(service, this.currentRunId);
     });
 
     this.discoveryManager.on("error", (error) => {
       this.emit("error", error);
     });
 
-    this.deviceRegistry.on("device:added", (device) => {
+    this.deviceRegistry.on("device:added", ({runId, device}) => {
+      if (runId !== this.currentRunId) {
+        return;
+      }
+
       this.broadcast({
         type: "device.added",
         device
       });
     });
 
-    this.deviceRegistry.on("device:updated", (device) => {
+    this.deviceRegistry.on("device:updated", ({runId, device}) => {
+      if (runId !== this.currentRunId) {
+        return;
+      }
+
       this.broadcast({
         type: "device.updated",
         device
-      });
-    });
-
-    this.deviceRegistry.on("device:removed", ({ deviceId, reason }) => {
-      this.broadcast({
-        type: "device.removed",
-        deviceId,
-        reason
       });
     });
   }
@@ -54,7 +56,7 @@ export class DiscoveryCoordinator extends EventEmitter {
 
     listener({
       type: "snapshot",
-      devices: this.deviceRegistry.listDevices()
+      devices: this.listDevices()
     });
 
     return () => {
@@ -71,7 +73,11 @@ export class DiscoveryCoordinator extends EventEmitter {
   }
 
   listDevices() {
-    return this.deviceRegistry.listDevices();
+    if(!this.currentRunId) {
+      return [];
+    }
+
+    return this.deviceRegistry.listDevices(this.currentRunId);
   }
 
   async ensureDiscoverySession() {
@@ -97,8 +103,20 @@ export class DiscoveryCoordinator extends EventEmitter {
   }
 
   async startDiscoverySession() {
-    this.deviceRegistry.clear();
-    await this.discoveryManager.start();
+    const previousRunId = this.currentRunId;
+    const runId = randomUUID();
+
+    this.currentRunId = runId;
+
+    try {
+      await this.discoveryManager.start();
+    } catch (error) {
+      if (this.currentRunId === runId) {
+        this.currentRunId = previousRunId;
+      }
+
+      throw error;
+    }
   }
 
   broadcast(message) {

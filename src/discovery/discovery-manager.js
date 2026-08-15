@@ -76,10 +76,6 @@ export class DiscoveryManager extends EventEmitter {
       this.emit("service", service);
     });
 
-    this.bus.on("service:remove", (usn) => {
-      this.emit("service:remove", usn);
-    });
-
     this.discoveryPromise = this.discoverLoop().catch((error) => {
       if (error.name !== "AbortError") {
         this.emit("error", error);
