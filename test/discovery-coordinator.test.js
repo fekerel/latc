@@ -102,6 +102,135 @@ test("stops only after the last discovery lease is released", async (t) => {
   assert.equal(manager.stopCount, 1);
 });
 
+test("resolves an existing AVTransport service identifier", async (t) => {
+  const manager = new FakeDiscoveryManager();
+  const registry = new DeviceRegistry();
+  const coordinator = new DiscoveryCoordinator(manager, registry, {
+    stopGraceMs: 0
+  });
+  t.after(async () => {
+    await manager.stop();
+    registry.clear();
+  });
+
+  const release = await coordinator.acquireDiscovery();
+  const runId = manager.runId;
+
+  manager.emit("service", {
+    runId,
+    service: createService({
+      usn: "uuid:device-1::urn:schemas-upnp-org:service:AVTransport:1",
+      serviceType: "urn:schemas-upnp-org:service:AVTransport:1"
+    })
+  });
+
+  const deviceId = coordinator.listDevices()[0].id;
+  release();
+
+  const result = await coordinator.resolveDeviceIdentifier(deviceId);
+
+  assert.deepEqual(result, {
+    status: "ready",
+    identifier: "uuid:device-1::urn:schemas-upnp-org:service:AVTransport:1"
+  });
+  assert.equal(manager.startCount, 1);
+});
+
+test("rechecks the AVTransport service identifier after waiting", async (t) => {
+  const manager = new FakeDiscoveryManager();
+  const registry = new DeviceRegistry();
+  const coordinator = new DiscoveryCoordinator(manager, registry, {
+    stopGraceMs: 0
+  });
+  t.after(async () => {
+    await manager.stop();
+    registry.clear();
+  });
+
+  const release = await coordinator.acquireDiscovery();
+
+  manager.emit("service", {
+    runId: manager.runId,
+    service: createService({
+      usn: "uuid:device-1::urn:schemas-upnp-org:device:MediaRenderer:1",
+      serviceType: "urn:schemas-upnp-org:device:MediaRenderer:1"
+    })
+  });
+
+  const deviceId = coordinator.listDevices()[0].id;
+  release();
+  await delay(10);
+
+  const resolvingIdentifier = coordinator.resolveDeviceIdentifier(deviceId, {
+    timeoutMs: 50
+  });
+
+  setTimeout(() => {
+    manager.emit("service", {
+      runId: manager.runId,
+      service: createService({
+        usn: "uuid:device-1::urn:schemas-upnp-org:service:AVTransport:1",
+        serviceType: "urn:schemas-upnp-org:service:AVTransport:1"
+      })
+    });
+  }, 0);
+
+  assert.deepEqual(await resolvingIdentifier, {
+    status: "ready",
+    identifier: "uuid:device-1::urn:schemas-upnp-org:service:AVTransport:1"
+  });
+});
+
+test("returns pending when the AVTransport service identifier is unavailable", async (t) => {
+  const manager = new FakeDiscoveryManager();
+  const registry = new DeviceRegistry();
+  const coordinator = new DiscoveryCoordinator(manager, registry, {
+    stopGraceMs: 0
+  });
+  t.after(async () => {
+    await manager.stop();
+    registry.clear();
+  });
+
+  const release = await coordinator.acquireDiscovery();
+
+  manager.emit("service", {
+    runId: manager.runId,
+    service: createService({
+      usn: "uuid:device-1::urn:schemas-upnp-org:device:MediaRenderer:1",
+      serviceType: "urn:schemas-upnp-org:device:MediaRenderer:1"
+    })
+  });
+
+  const deviceId = coordinator.listDevices()[0].id;
+  release();
+  await delay(10);
+
+  const result = await coordinator.resolveDeviceIdentifier(deviceId, {
+    timeoutMs: 5
+  });
+
+  assert.deepEqual(result, {
+    status: "pending",
+    reason: "identifier_not_available"
+  });
+});
+
+test("does not start discovery when resolving an unknown device identifier", async () => {
+  const manager = new FakeDiscoveryManager();
+  const registry = new DeviceRegistry();
+  const coordinator = new DiscoveryCoordinator(manager, registry);
+
+  const result = await coordinator.resolveDeviceIdentifier("missing-device", {
+    timeoutMs: 5
+  });
+
+  assert.deepEqual(result, {
+    status: "not_found"
+  });
+  assert.equal(manager.startCount, 0);
+});
+
 class FakeDiscoveryManager extends EventEmitter {
   constructor() {
     super();
@@ -130,11 +259,14 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createService() {
+function createService({
+  usn = "service-a",
+  serviceType = "urn:schemas-upnp-org:device:MediaRenderer:1"
+} = {}) {
   return {
-    uniqueServiceName: "service-a",
+    uniqueServiceName: usn,
     location: new URL("http://192.168.1.24:8080/description.xml"),
-    serviceType: "urn:schemas-upnp-org:device:MediaRenderer:1",
+    serviceType,
     details: {
       device: {
         friendlyName: "Living Room TV"

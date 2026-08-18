@@ -191,4 +191,74 @@ export class DiscoveryCoordinator extends EventEmitter {
       this.stopTimer = null;
     }
   }
+
+  async resolveDeviceIdentifier(deviceRegistryId, options = {}) {
+    const timeoutMs = options.timeoutMs ?? 3000;
+    let device = this.deviceRegistry.getDeviceById(deviceRegistryId);
+
+    if (!device) {
+      return {
+        status: "not_found"
+      };
+    }
+
+    let identifier = getDeviceIdentifier(device);
+
+    if (identifier) {
+      return {
+        status: "ready",
+        identifier
+      };
+    }
+
+    const releaseDiscovery = await this.acquireDiscovery();
+
+    try {
+      await wait(timeoutMs);
+      device = this.deviceRegistry.getDeviceById(deviceRegistryId);
+      identifier = getDeviceIdentifier(device);
+
+      if (!identifier) {
+        return {
+          status: "pending",
+          reason: "identifier_not_available"
+        };
+      }
+
+      return {
+        status: "ready",
+        identifier
+      };
+    } finally {
+      releaseDiscovery();
+    }
+  }
+}
+
+function getDeviceIdentifier(device) {
+  if (!device) {
+    return undefined;
+  }
+
+  for (const [usn, service] of device.services) {
+    if (isAvTransportService(service)) {
+      return usn;
+    }
+  }
+
+  return undefined;
+}
+
+function isAvTransportService(service) {
+  return String(service.serviceType)
+    .split(":")
+    .some((part) => part.toLowerCase() === "avtransport");
+}
+
+function wait(timeoutMs) {
+  if (timeoutMs <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
 }
