@@ -1,20 +1,16 @@
+import express from "express";
 import http from "node:http";
 import { registerWebSocket } from "./websocket.js";
+import { createDiscoveryRouter } from "./routers/discovery-router.js";
 
 export function createServer(app) {
-  const server = http.createServer((request, response) => {
-    if (request.url === "/health") {
-      sendJson(response, 200, { ok: true });
-      return;
-    }
+  const expressApp = express();
 
-    if (request.url === "/discovery/devices") {
-      sendJson(response, 200, { devices: app.discovery.listDevices() });
-      return;
-    }
+  expressApp.use(express.json());
 
-    sendJson(response, 404, { error: "not_found" });
-  });
+  expressApp.use("/discovery", createDiscoveryRouter(app.discovery));
+
+  const server = http.createServer(expressApp);
 
   registerWebSocket({
     server,
@@ -23,9 +19,4 @@ export function createServer(app) {
   });
 
   return server;
-}
-
-function sendJson(response, statusCode, body) {
-  response.writeHead(statusCode, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
 }
