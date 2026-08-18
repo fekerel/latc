@@ -1,25 +1,97 @@
 export class DeviceProfileService {
-  constructor({ store, controlStrategies, deliveryStrategies }) {
+  constructor({
+    store,
+    controlStrategies,
+    deliveryStrategies,
+    resolveDeviceIdentifier
+  }) {
     this.store = store;
     this.controlStrategies = controlStrategies;
     this.deliveryStrategies = deliveryStrategies;
+    this.resolveDeviceIdentifier = resolveDeviceIdentifier;
   }
 
   listProfiles() {
     return this.store.listProfiles();
   }
 
-  getProfile(deviceKey) {
+  async getProfileForDevice(deviceRegistryId) {
+    const result = await this.resolveDeviceKey(deviceRegistryId);
+
+    if (result.status !== "ready") {
+      return result;
+    }
+
+    return {
+      status: "ready",
+      profile: this.getProfileByDeviceKey(result.deviceKey)
+    };
+  }
+
+  async saveProfileForDevice(deviceRegistryId, profile) {
+    const result = await this.resolveDeviceKey(deviceRegistryId);
+
+    if (result.status !== "ready") {
+      return result;
+    }
+
+    return {
+      status: "ready",
+      profile: this.saveProfileByDeviceKey({
+        ...profile,
+        deviceKey: result.deviceKey
+      })
+    };
+  }
+
+  async deleteProfileForDevice(deviceRegistryId) {
+    const result = await this.resolveDeviceKey(deviceRegistryId);
+
+    if (result.status !== "ready") {
+      return result;
+    }
+
+    return {
+      status: "ready",
+      deleted: this.deleteProfileByDeviceKey(result.deviceKey)
+    };
+  }
+
+  getProfileByDeviceKey(deviceKey) {
+    return (
+      this.getSavedProfileByDeviceKey(deviceKey) ??
+      this.createDefaultProfile(deviceKey)
+    );
+  }
+
+  getSavedProfileByDeviceKey(deviceKey) {
     return this.store.getProfile(deviceKey);
   }
 
-  saveProfile(profile) {
+  saveProfileByDeviceKey(profile) {
     this.validateProfile(profile);
     return this.store.saveProfile(profile);
   }
 
-  deleteProfile(deviceKey) {
+  deleteProfileByDeviceKey(deviceKey) {
     return this.store.deleteProfile(deviceKey);
+  }
+
+  async resolveDeviceKey(deviceRegistryId) {
+    if (!this.resolveDeviceIdentifier) {
+      throw new TypeError("resolveDeviceIdentifier is required");
+    }
+
+    const result = await this.resolveDeviceIdentifier(deviceRegistryId);
+
+    if (result.status !== "ready") {
+      return result;
+    }
+
+    return {
+      status: "ready",
+      deviceKey: result.identifier
+    };
   }
 
   validateProfile(profile) {
@@ -56,4 +128,25 @@ export class DeviceProfileService {
       throw new RangeError(`unknown_${name}_strategy`);
     }
   }
+
+  createDefaultProfile(deviceKey) {
+    const control = this.controlStrategies.getDefault();
+    const delivery = this.deliveryStrategies.getDefault();
+
+    return {
+      deviceKey,
+      control: {
+        kind: control.kind,
+        config: cloneConfig(control.defaultConfig ?? {})
+      },
+      delivery: {
+        kind: delivery.kind,
+        config: cloneConfig(delivery.defaultConfig ?? {})
+      }
+    };
+  }
+}
+
+function cloneConfig(config) {
+  return structuredClone(config);
 }

@@ -4,8 +4,20 @@ const controlStrategyByKind = {
   "upnp-avtransport": new UpnpAvTransportControlStrategy()
 };
 
+const defaultControlStrategyKind = "upnp-avtransport";
+
 export function createControlStrategyRegistry() {
   const strategies = createStrategyMap(controlStrategyByKind);
+
+  const getStrategy = (kind) => {
+    const strategy = strategies.get(kind);
+
+    if (!strategy) {
+      throw new RangeError("unknown_control_strategy");
+    }
+
+    return strategy;
+  };
 
   return {
     list() {
@@ -16,14 +28,10 @@ export function createControlStrategyRegistry() {
       return strategies.has(kind);
     },
 
-    get(kind) {
-      const strategy = strategies.get(kind);
+    get: getStrategy,
 
-      if (!strategy) {
-        throw new RangeError("unknown_control_strategy");
-      }
-
-      return strategy;
+    getDefault() {
+      return getStrategy(defaultControlStrategyKind);
     }
   };
 }

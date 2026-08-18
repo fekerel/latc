@@ -8,7 +8,8 @@ export function createPlaybackModule(options = {}) {
   const deviceProfiles = createDeviceProfilesModule({
     ...options.deviceProfiles,
     controlStrategies,
-    deliveryStrategies
+    deliveryStrategies,
+    resolveDeviceIdentifier: options.resolveDeviceIdentifier
   });
 
   return {

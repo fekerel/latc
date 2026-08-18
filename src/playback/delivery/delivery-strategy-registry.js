@@ -4,8 +4,20 @@ const deliveryStrategyByKind = {
   direct: new DirectDeliveryStrategy()
 };
 
+const defaultDeliveryStrategyKind = "direct";
+
 export function createDeliveryStrategyRegistry() {
   const strategies = createStrategyMap(deliveryStrategyByKind);
+
+  const getStrategy = (kind) => {
+    const strategy = strategies.get(kind);
+
+    if (!strategy) {
+      throw new RangeError("unknown_delivery_strategy");
+    }
+
+    return strategy;
+  };
 
   return {
     list() {
@@ -16,14 +28,10 @@ export function createDeliveryStrategyRegistry() {
       return strategies.has(kind);
     },
 
-    get(kind) {
-      const strategy = strategies.get(kind);
+    get: getStrategy,
 
-      if (!strategy) {
-        throw new RangeError("unknown_delivery_strategy");
-      }
-
-      return strategy;
+    getDefault() {
+      return getStrategy(defaultDeliveryStrategyKind);
     }
   };
 }

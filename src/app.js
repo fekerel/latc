@@ -3,7 +3,10 @@ import { createPlaybackModule } from "./playback/index.js";
 
 export function createApp(config = {}) {
   const discovery = createDiscoveryModule(config.discovery);
-  const playback = createPlaybackModule(config.playback);
+  const playback = createPlaybackModule({
+    ...config.playback,
+    resolveDeviceIdentifier: discovery.resolveDeviceIdentifier
+  });
 
   return {
     discovery,

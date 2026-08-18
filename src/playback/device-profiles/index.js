@@ -6,13 +6,19 @@ export function createDeviceProfilesModule(options = {}) {
   const service = new DeviceProfileService({
     store,
     controlStrategies: options.controlStrategies,
-    deliveryStrategies: options.deliveryStrategies
+    deliveryStrategies: options.deliveryStrategies,
+    resolveDeviceIdentifier: options.resolveDeviceIdentifier
   });
 
   return {
     listProfiles: service.listProfiles.bind(service),
-    getProfile: service.getProfile.bind(service),
-    saveProfile: service.saveProfile.bind(service),
-    deleteProfile: service.deleteProfile.bind(service)
+    getProfileForDevice: service.getProfileForDevice.bind(service),
+    saveProfileForDevice: service.saveProfileForDevice.bind(service),
+    deleteProfileForDevice: service.deleteProfileForDevice.bind(service),
+    getProfileByDeviceKey: service.getProfileByDeviceKey.bind(service),
+    getSavedProfileByDeviceKey:
+      service.getSavedProfileByDeviceKey.bind(service),
+    saveProfileByDeviceKey: service.saveProfileByDeviceKey.bind(service),
+    deleteProfileByDeviceKey: service.deleteProfileByDeviceKey.bind(service)
   };
 }
