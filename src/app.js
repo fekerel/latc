@@ -1,9 +1,12 @@
 import { createDiscoveryModule } from "./discovery/index.js";
+import { createPlaybackModule } from "./playback/index.js";
 
 export function createApp(config = {}) {
   const discovery = createDiscoveryModule(config.discovery);
+  const playback = createPlaybackModule(config.playback);
 
   return {
-    discovery
+    discovery,
+    playback
   };
 }
