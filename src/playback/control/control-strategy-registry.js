@@ -1,55 +1,78 @@
 import { UpnpAvTransportControlStrategy } from "./strategies/upnp-avtransport-control-strategy.js";
 
-const controlStrategyByKind = {
-  "upnp-avtransport": new UpnpAvTransportControlStrategy()
-};
+const controlStrategyClasses = [
+  UpnpAvTransportControlStrategy
+];
 
-const defaultControlStrategyKind = "upnp-avtransport";
+const DefaultControlStrategy = UpnpAvTransportControlStrategy;
 
 export function createControlStrategyRegistry() {
-  const strategies = createStrategyMap(controlStrategyByKind);
+  const strategyFactories = createStrategyFactoryMap(controlStrategyClasses);
 
-  const getStrategy = (kind) => {
-    const strategy = strategies.get(kind);
+  const getStrategyFactory = (kind) => {
+    const factory = strategyFactories.get(kind);
 
-    if (!strategy) {
+    if (!factory) {
       throw new RangeError("unknown_control_strategy");
     }
 
-    return strategy;
+    return factory;
   };
+  const getDefinition = (kind) => toStrategyDefinition(getStrategyFactory(kind));
 
   return {
     list() {
-      return [...strategies.values()].map(toStrategySummary);
+      return [...strategyFactories.values()].map(toStrategyDefinition);
     },
 
     has(kind) {
-      return strategies.has(kind);
+      return strategyFactories.has(kind);
     },
 
-    get: getStrategy,
+    getDefinition,
 
     getDefault() {
-      return getStrategy(defaultControlStrategyKind);
+      return getDefinition(DefaultControlStrategy.kind);
+    },
+
+    create(kind, config = {}) {
+      return getStrategyFactory(kind)(config);
     }
   };
 }
 
-function createStrategyMap(strategyByKind) {
-  for (const [kind, strategy] of Object.entries(strategyByKind)) {
-    if (strategy.kind !== kind) {
-      throw new Error(`strategy kind mismatch: ${kind}`);
-    }
-  }
+function createStrategyFactory(Strategy) {
+  const factory = (config) => new Strategy(config);
 
-  return new Map(Object.entries(strategyByKind));
+  factory.kind = Strategy.kind;
+  factory.label = Strategy.label;
+  factory.defaultConfig = Strategy.defaultConfig ?? {};
+
+  return factory;
 }
 
-function toStrategySummary(strategy) {
+function createStrategyFactoryMap(StrategyClasses) {
+  const strategyFactories = new Map();
+
+  for (const Strategy of StrategyClasses) {
+    if (!Strategy.kind) {
+      throw new TypeError("strategy kind is required");
+    }
+
+    if (strategyFactories.has(Strategy.kind)) {
+      throw new Error(`duplicate strategy kind: ${Strategy.kind}`);
+    }
+
+    strategyFactories.set(Strategy.kind, createStrategyFactory(Strategy));
+  }
+
+  return strategyFactories;
+}
+
+function toStrategyDefinition(factory) {
   return {
-    kind: strategy.kind,
-    label: strategy.label,
-    defaultConfig: strategy.defaultConfig ?? {}
+    kind: factory.kind,
+    label: factory.label,
+    defaultConfig: factory.defaultConfig ?? {}
   };
 }

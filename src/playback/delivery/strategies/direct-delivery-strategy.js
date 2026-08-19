@@ -1,7 +1,11 @@
 export class DirectDeliveryStrategy {
-  kind = "direct";
-  label = "Direct URL";
-  defaultConfig = {};
+  static kind = "direct";
+  static label = "Direct URL";
+  static defaultConfig = {};
+
+  constructor(config = {}) {
+    this.config = config;
+  }
 
   async prepare({ sourceUrl }) {
     return {
