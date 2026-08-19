@@ -5,8 +5,8 @@ export function createDeviceProfilesModule(options = {}) {
   const store = options.store ?? new InMemoryDeviceProfileStore();
   const service = new DeviceProfileService({
     store,
-    controlStrategies: options.controlStrategies,
-    deliveryStrategies: options.deliveryStrategies,
+    controlStrategies: options.controlStrategyRegistry,
+    deliveryStrategies: options.deliveryStrategyRegistry,
     resolveDeviceIdentifier: options.resolveDeviceIdentifier
   });
 
