@@ -1,11 +1,14 @@
 import { EventEmitter } from "node:events";
 import ssdp from "@achingbrain/ssdp";
+import { findLanIpv4Address } from "../common/network.js";
 
 export class DiscoveryManager extends EventEmitter {
   constructor(options = {}) {
     super();
 
     this.searchInterval = options.searchInterval;
+    this.findLanIpv4Address =
+      options.findLanIpv4Address ?? findLanIpv4Address;
     this.bus = null;
     this.abortController = null;
     this.discoveryPromise = null;
@@ -58,12 +61,14 @@ export class DiscoveryManager extends EventEmitter {
     this.abortController = abortController;
 
     try {
+      const bindAddress = this.findLanIpv4Address();
+
       bus = await ssdp({
         sockets: [
           {
             type: "udp4",
             bind: {
-              address: "0.0.0.0",
+              address: bindAddress === "localhost" ? "0.0.0.0" : bindAddress,
               port: 0
             }
           }
