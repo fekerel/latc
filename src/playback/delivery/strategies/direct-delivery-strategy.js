@@ -121,7 +121,7 @@ function copyHeader(upstream, response, name) {
 function copyUpstreamResponseHeaders(upstream, response, session) {
   response.status(upstream.status);
   setHeader(response, "content-type", session.mediaResource.contentType);
-  setHeader(response, "content-length", session.mediaResource.contentLength);
+  setHeader(response, "content-length", getContentLength(upstream, session));
   copyHeader(upstream, response, "content-range");
   setHeader(response, "accept-ranges", "bytes");
   setHeader(
@@ -137,4 +137,14 @@ function setHeader(response, name, value) {
   if (value) {
     response.setHeader(name, value);
   }
+}
+
+function getContentLength(upstream, session) {
+  const upstreamContentLength = upstream.headers.get("content-length");
+
+  if (upstream.status === 206 || upstream.headers.get("content-range")) {
+    return upstreamContentLength ?? undefined;
+  }
+
+  return session.mediaResource.contentLength ?? upstreamContentLength ?? undefined;
 }
