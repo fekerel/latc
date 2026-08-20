@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { DeviceNotFoundError } from "../common/errors/device-not-found-error.js";
+import { UnsupportedDeviceError } from "../common/errors/unsupported-device-error.js";
 
 export class DiscoveryCoordinator extends EventEmitter {
   constructor(discoveryManager, deviceRegistry, options = {}) {
@@ -197,18 +199,13 @@ export class DiscoveryCoordinator extends EventEmitter {
     let device = this.deviceRegistry.getDeviceById(deviceRegistryId);
 
     if (!device) {
-      return {
-        status: "not_found"
-      };
+      throw new DeviceNotFoundError();
     }
 
     let identifier = getDeviceIdentifier(device);
 
     if (identifier) {
-      return {
-        status: "ready",
-        identifier
-      };
+      return identifier;
     }
 
     const releaseDiscovery = await this.acquireDiscovery();
@@ -216,19 +213,18 @@ export class DiscoveryCoordinator extends EventEmitter {
     try {
       await wait(timeoutMs);
       device = this.deviceRegistry.getDeviceById(deviceRegistryId);
+
+      if (!device) {
+        throw new DeviceNotFoundError();
+      }
+
       identifier = getDeviceIdentifier(device);
 
       if (!identifier) {
-        return {
-          status: "pending",
-          reason: "identifier_not_available"
-        };
+        throw new UnsupportedDeviceError()
       }
 
-      return {
-        status: "ready",
-        identifier
-      };
+      return identifier;
     } finally {
       releaseDiscovery();
     }

@@ -18,43 +18,22 @@ export class DeviceProfileService {
   async getProfileForDevice(deviceRegistryId) {
     const result = await this.resolveDeviceKey(deviceRegistryId);
 
-    if (result.status !== "ready") {
-      return result;
-    }
-
-    return {
-      status: "ready",
-      profile: this.getProfileByDeviceKey(result.deviceKey)
-    };
+    return this.getProfileByDeviceKey(result.deviceKey);
   }
 
   async saveProfileForDevice(deviceRegistryId, profile) {
     const result = await this.resolveDeviceKey(deviceRegistryId);
 
-    if (result.status !== "ready") {
-      return result;
-    }
-
-    return {
-      status: "ready",
-      profile: this.saveProfileByDeviceKey({
+    return this.saveProfileByDeviceKey({
         ...profile,
         deviceKey: result.deviceKey
-      })
-    };
+      });
   }
 
   async deleteProfileForDevice(deviceRegistryId) {
     const result = await this.resolveDeviceKey(deviceRegistryId);
-
-    if (result.status !== "ready") {
-      return result;
-    }
-
-    return {
-      status: "ready",
-      deleted: this.deleteProfileByDeviceKey(result.deviceKey)
-    };
+    
+    return this.deleteProfileByDeviceKey(result.deviceKey);
   }
 
   getProfileByDeviceKey(deviceKey) {
@@ -84,14 +63,7 @@ export class DeviceProfileService {
 
     const result = await this.resolveDeviceIdentifier(deviceRegistryId);
 
-    if (result.status !== "ready") {
-      return result;
-    }
-
-    return {
-      status: "ready",
-      deviceKey: result.identifier
-    };
+    return result.identifier;
   }
 
   validateProfile(profile) {

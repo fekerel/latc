@@ -20,5 +20,5 @@ app.discovery.onError((error) => {
 server.listen(PORT, () => {
   console.log(`HTTP server: http://localhost:${PORT}`);
   console.log(`Discovery WS: ws://localhost:${PORT}/discovery`);
-  console.log(`LAN HTTP server: ${createLanPublicBaseUrl(PORT)}`);
+  console.log(`LAN HTTP server: ${createLanPublicBaseUrl({port: PORT})}`);
 });

@@ -4,9 +4,10 @@ export function createDeviceProfileRouter(deviceProfiles) {
   const router = Router();
 
 // TODO  
-//   router.get("...", async (req, res) => {
-//     ...
-//   });
+  router.get("/:id", async (req, res) => {
+    const profile = await deviceProfiles.getProfileForDevice(req.params.id);
+    res.json({ profile });
+  });
 
   return router;
 }
