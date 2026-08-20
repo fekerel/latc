@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { normalizeContentType } from "../../../common/content-type.js";
 import { createDefaultDlnaFeatures } from "../../../common/dlna.js";
 
 export class DirectDeliveryStrategy {
@@ -16,10 +17,16 @@ export class DirectDeliveryStrategy {
       fetch: this.fetch,
       url: source.url
     });
+    const upstreamContentType = response.headers.get("content-type") ?? undefined;
+    const contentType = resolveDeclaredContentType(
+      upstreamContentType,
+      this.config.declaredContentTypeOverrides
+    );
 
     return {
       upstreamUrl: url,
-      contentType: response.headers.get("content-type") ?? undefined,
+      upstreamContentType,
+      contentType,
       contentLength: response.headers.get("content-length") ?? undefined,
       acceptRanges: "bytes"
     };
@@ -147,4 +154,15 @@ function getContentLength(upstream, session) {
   }
 
   return session.mediaResource.contentLength ?? upstreamContentLength ?? undefined;
+}
+
+function resolveDeclaredContentType(upstreamContentType, overrides = {}) {
+  const normalizedContentType = normalizeContentType(upstreamContentType);
+
+  return (
+    overrides[normalizedContentType] ??
+    overrides[upstreamContentType] ??
+    normalizedContentType ??
+    upstreamContentType
+  );
 }

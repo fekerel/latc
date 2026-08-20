@@ -1,16 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  createDefaultDlnaFeatures,
-  normalizeContentType
-} from "../src/common/dlna.js";
+import { createDefaultDlnaFeatures } from "../src/common/dlna.js";
 
 const SEEKABLE_HTTP_DLNA_FEATURES =
   "DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01500000000000000000000000000000";
-
-test("normalizes content types for DLNA metadata", () => {
-  assert.equal(normalizeContentType("Video/MP4; charset=utf-8"), "video/mp4");
-});
 
 test("marks video resources as seekable HTTP DLNA resources", () => {
   assert.equal(

@@ -1,8 +1,6 @@
 import MediaRendererClient from "upnp-mediarenderer-client";
-import {
-  createDefaultDlnaFeatures,
-  normalizeContentType
-} from "../../../common/dlna.js";
+import { normalizeContentType } from "../../../common/content-type.js";
+import { createDefaultDlnaFeatures } from "../../../common/dlna.js";
 
 export class UpnpAvTransportControlStrategy {
   static kind = "upnp-avtransport";
