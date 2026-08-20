@@ -9,5 +9,14 @@ export function createDeviceProfileRouter(deviceProfiles) {
     res.json({ profile });
   });
 
+  router.put("/:id", async (req, res) => {
+    const profile = await deviceProfiles.saveProfileForDevice(
+      req.params.id,
+      req.body
+    );
+
+    res.json({ profile });
+  });
+  
   return router;
 }

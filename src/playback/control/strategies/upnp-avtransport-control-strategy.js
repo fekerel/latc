@@ -25,6 +25,7 @@ export class UpnpAvTransportControlStrategy {
 
     this.client = client;
     await setAvTransportUri(client, streamUrl, loadOptions);
+    await wait(this.config.playDelayMs ?? 500);
     await play(client);
 
     return {
@@ -114,6 +115,14 @@ function play(client) {
     InstanceID: client.instanceId ?? 0,
     Speed: 1
   });
+}
+
+function wait(timeoutMs) {
+  if (timeoutMs <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
 }
 
 function callAction(client, serviceId, actionName, params) {
