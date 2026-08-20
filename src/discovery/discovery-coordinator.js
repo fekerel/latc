@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { DeviceNotFoundError } from "../common/errors/device-not-found-error.js";
+import { NotFoundError } from "../common/errors/not-found-error.js";
 import { UnsupportedDeviceError } from "../common/errors/unsupported-device-error.js";
 
 export class DiscoveryCoordinator extends EventEmitter {
@@ -199,7 +199,7 @@ export class DiscoveryCoordinator extends EventEmitter {
     let device = this.deviceRegistry.getDeviceById(deviceRegistryId);
 
     if (!device) {
-      throw new DeviceNotFoundError();
+      throw new NotFoundError("Device Not Found");
     }
 
     let identifier = getDeviceIdentifier(device);
@@ -215,7 +215,7 @@ export class DiscoveryCoordinator extends EventEmitter {
       device = this.deviceRegistry.getDeviceById(deviceRegistryId);
 
       if (!device) {
-        throw new DeviceNotFoundError();
+        throw new NotFoundError("Device not found");
       }
 
       identifier = getDeviceIdentifier(device);

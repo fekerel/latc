@@ -16,24 +16,24 @@ export class DeviceProfileService {
   }
 
   async getProfileForDevice(deviceRegistryId) {
-    const result = await this.resolveDeviceKey(deviceRegistryId);
+    const deviceKey = await this.resolveDeviceKey(deviceRegistryId);
 
-    return this.getProfileByDeviceKey(result.deviceKey);
+    return this.getProfileByDeviceKey(deviceKey);
   }
 
   async saveProfileForDevice(deviceRegistryId, profile) {
-    const result = await this.resolveDeviceKey(deviceRegistryId);
+    const deviceKey = await this.resolveDeviceKey(deviceRegistryId);
 
     return this.saveProfileByDeviceKey({
         ...profile,
-        deviceKey: result.deviceKey
+        deviceKey
       });
   }
 
   async deleteProfileForDevice(deviceRegistryId) {
-    const result = await this.resolveDeviceKey(deviceRegistryId);
+    const deviceKey = await this.resolveDeviceKey(deviceRegistryId);
     
-    return this.deleteProfileByDeviceKey(result.deviceKey);
+    return this.deleteProfileByDeviceKey(deviceKey);
   }
 
   getProfileByDeviceKey(deviceKey) {
@@ -61,9 +61,9 @@ export class DeviceProfileService {
       throw new TypeError("resolveDeviceIdentifier is required");
     }
 
-    const result = await this.resolveDeviceIdentifier(deviceRegistryId);
+    const identifier = await this.resolveDeviceIdentifier(deviceRegistryId);
 
-    return result.identifier;
+    return identifier;
   }
 
   validateProfile(profile) {

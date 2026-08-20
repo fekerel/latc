@@ -5,6 +5,10 @@ export function createApp(config = {}) {
   const discovery = createDiscoveryModule(config.discovery);
   const playback = createPlaybackModule({
     ...config.playback,
+    control: {
+      ...config.playback?.control,
+      getDeviceById: discovery.getDeviceById
+    },
     resolveDeviceIdentifier: discovery.resolveDeviceIdentifier
   });
 

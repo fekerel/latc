@@ -6,8 +6,11 @@ const deliveryStrategyClasses = [
 
 const DefaultDeliveryStrategy = DirectDeliveryStrategy;
 
-export function createDeliveryStrategyRegistry() {
-  const strategyFactories = createStrategyFactoryMap(deliveryStrategyClasses);
+export function createDeliveryStrategyRegistry(deps = {}) {
+  const strategyFactories = createStrategyFactoryMap(
+    deliveryStrategyClasses,
+    deps
+  );
 
   const getStrategyFactory = (kind) => {
     const factory = strategyFactories.get(kind);
@@ -41,8 +44,8 @@ export function createDeliveryStrategyRegistry() {
   };
 }
 
-function createStrategyFactory(Strategy) {
-  const factory = (config) => new Strategy(config);
+function createStrategyFactory(Strategy, deps) {
+  const factory = (config) => new Strategy(config, deps);
 
   factory.kind = Strategy.kind;
   factory.label = Strategy.label;
@@ -51,7 +54,7 @@ function createStrategyFactory(Strategy) {
   return factory;
 }
 
-function createStrategyFactoryMap(StrategyClasses) {
+function createStrategyFactoryMap(StrategyClasses, deps) {
   const strategyFactories = new Map();
 
   for (const Strategy of StrategyClasses) {
@@ -63,7 +66,7 @@ function createStrategyFactoryMap(StrategyClasses) {
       throw new Error(`duplicate strategy kind: ${Strategy.kind}`);
     }
 
-    strategyFactories.set(Strategy.kind, createStrategyFactory(Strategy));
+    strategyFactories.set(Strategy.kind, createStrategyFactory(Strategy, deps));
   }
 
   return strategyFactories;
