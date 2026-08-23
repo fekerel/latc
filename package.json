@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@achingbrain/ssdp": "github:fekerel/ssdp#main",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
+    "upnp-mediarenderer-client": "^1.4.0",
     "ws": "^8.18.0"
   }
 }
