@@ -1,9 +1,9 @@
 import { Router } from "express";
 
-export function createPlaybackRouter(playback) {
+export function createPlaybackSessionsApi(playback) {
   const router = Router();
 
-  router.post("/sessions", async (request, response, next) => {
+  router.post("/sessions", async (request, response) => {
     const result = await playback.createSession(request.body);
 
     response.status(201).json({
@@ -12,19 +12,7 @@ export function createPlaybackRouter(playback) {
     });
   });
 
-  router.head("/streams/:sessionId", handlePlaybackRequest(playback));
-  router.get("/streams/:sessionId", handlePlaybackRequest(playback));
-
   return router;
-}
-
-function handlePlaybackRequest(playback) {
-  return async (request, response) => {
-    await playback.handleRequest(request.params.sessionId, {
-      request,
-      response
-    });
-  };
 }
 
 function serializeSession(session) {

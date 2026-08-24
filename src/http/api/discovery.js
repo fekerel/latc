@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-export function createDiscoveryRouter(discovery) {
+export function createDiscoveryApi(discovery) {
   const router = Router();
 
   router.get("/devices", async (req, res) => {
