@@ -25,7 +25,7 @@ export class DirectDeliveryStrategy {
     );
 
     return {
-      upstreamUrl: url,
+      resolvedUrl: url,
       upstreamContentType,
       contentType,
       contentLength: response.headers.get("content-length") ?? undefined,
@@ -35,11 +35,9 @@ export class DirectDeliveryStrategy {
 
   async handleRequest({ session, request, response }) {
     if (request.method === "HEAD") {
-      await handleHeadRequest({
+      handleHeadRequest({
         session,
-        request,
-        response,
-        fetch: this.fetch
+        response
       });
       return;
     }
@@ -86,13 +84,8 @@ export class DirectDeliveryStrategy {
   }
 }
 
-async function handleHeadRequest({ session, request, response, fetch }) {
-  const upstream = await fetch(getUpstreamUrl(session), {
-    method: "GET",
-    headers: pickForwardedHeaders(request)
-  });
-
-  copyUpstreamResponseHeaders(upstream, response, session);
+function handleHeadRequest({ session, response }) {
+  writePreparedMediaHeaders(response, session);
   response.end();
 }
 
@@ -132,7 +125,7 @@ function isRedirect(status) {
 }
 
 function getUpstreamUrl(session) {
-  return session.mediaResource.upstreamUrl ?? session.source.url;
+  return session.source.url;
 }
 
 function pickForwardedHeaders(request) {
@@ -159,6 +152,20 @@ function copyUpstreamResponseHeaders(upstream, response, session) {
   setHeader(response, "content-length", getContentLength(upstream, session));
   copyHeader(upstream, response, "content-range");
   setHeader(response, "accept-ranges", "bytes");
+  setHeader(
+    response,
+    "contentFeatures.dlna.org",
+    createDefaultDlnaFeatures(session.mediaResource.contentType)
+  );
+  setHeader(response, "transferMode.dlna.org", "Interactive");
+  setHeader(response, "connection", "close");
+}
+
+function writePreparedMediaHeaders(response, session) {
+  response.status(200);
+  setHeader(response, "content-type", session.mediaResource.contentType);
+  setHeader(response, "content-length", session.mediaResource.contentLength);
+  setHeader(response, "accept-ranges", session.mediaResource.acceptRanges);
   setHeader(
     response,
     "contentFeatures.dlna.org",
