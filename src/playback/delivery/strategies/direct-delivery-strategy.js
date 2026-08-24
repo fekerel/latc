@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { normalizeContentType } from "../../../common/content-type.js";
 import { createDefaultDlnaFeatures } from "../../../common/dlna.js";
 
@@ -54,7 +55,34 @@ export class DirectDeliveryStrategy {
       return;
     }
 
-    Readable.fromWeb(upstream.body).pipe(response);
+    const source = Readable.fromWeb(upstream.body);
+    const cleanupStreamListeners = registerStreamListeners({
+      session,
+      request,
+      response,
+      source
+    });
+
+    try {
+      await pipeline(source, response);
+      logStreamEvent(session, "pipeline_complete", {
+        sourceDestroyed: source.destroyed,
+        responseDestroyed: response.destroyed,
+        responseWritableEnded: response.writableEnded
+      });
+    } catch (error) {
+      logStreamError(session, "pipeline_error", error, {
+        sourceDestroyed: source.destroyed,
+        responseDestroyed: response.destroyed,
+        responseWritableEnded: response.writableEnded
+      });
+
+      if (!response.headersSent) {
+        throw error;
+      }
+    } finally {
+      cleanupStreamListeners();
+    }
   }
 }
 
@@ -165,4 +193,71 @@ function resolveDeclaredContentType(upstreamContentType, overrides = {}) {
     normalizedContentType ??
     upstreamContentType
   );
+}
+
+function registerStreamListeners({ session, request, response, source }) {
+  const context = {
+    method: request.method,
+    range: request.headers.range
+  };
+  const onSourceEnd = () => {
+    logStreamEvent(session, "upstream_end", context);
+  };
+  const onSourceClose = () => {
+    logStreamEvent(session, "upstream_close", {
+      ...context,
+      sourceDestroyed: source.destroyed
+    });
+  };
+  const onSourceError = (error) => {
+    logStreamError(session, "upstream_error", error, context);
+  };
+  const onResponseFinish = () => {
+    logStreamEvent(session, "response_finish", context);
+  };
+  const onResponseClose = () => {
+    logStreamEvent(session, "response_close", {
+      ...context,
+      responseDestroyed: response.destroyed,
+      responseWritableEnded: response.writableEnded
+    });
+  };
+  const onResponseError = (error) => {
+    logStreamError(session, "response_error", error, context);
+  };
+
+  source.on("end", onSourceEnd);
+  source.on("close", onSourceClose);
+  source.on("error", onSourceError);
+  response.on?.("finish", onResponseFinish);
+  response.on?.("close", onResponseClose);
+  response.on?.("error", onResponseError);
+
+  return () => {
+    source.off("end", onSourceEnd);
+    source.off("close", onSourceClose);
+    source.off("error", onSourceError);
+    response.off?.("finish", onResponseFinish);
+    response.off?.("close", onResponseClose);
+    response.off?.("error", onResponseError);
+  };
+}
+
+function logStreamEvent(session, event, details = {}) {
+  console.info("[direct-delivery] stream_event", {
+    sessionId: session.id,
+    event,
+    ...details
+  });
+}
+
+function logStreamError(session, event, error, details = {}) {
+  console.error("[direct-delivery] stream_error", {
+    sessionId: session.id,
+    event,
+    name: error.name,
+    code: error.code,
+    message: error.message,
+    ...details
+  });
 }
