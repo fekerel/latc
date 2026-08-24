@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 
-const url = process.argv[2] ?? "ws://localhost:3000/discovery";
+const url = process.argv[2] ?? "ws://localhost:3000/ws/discovery";
 const socket = new WebSocket(url);
 
 socket.on("open", () => {
