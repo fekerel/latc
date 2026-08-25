@@ -10,6 +10,12 @@ const app = createApp({
       createLanPublicBaseUrl({
         port: PORT
       })
+  },
+  addonProxies: {
+    getPublicBaseUrl: () => 
+      createLanPublicBaseUrl({
+        port: PORT
+      })
   }
 });
 const server = createServer(app, {

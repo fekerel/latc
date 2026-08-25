@@ -1,8 +1,12 @@
+import { createAddonProxiesModule } from "./addon-proxies/index.js";
 import { createDiscoveryModule } from "./discovery/index.js";
 import { createPlaybackModule } from "./playback/index.js";
 
 export function createApp(config = {}) {
   const discovery = createDiscoveryModule(config.discovery);
+  const addonProxies = createAddonProxiesModule({
+    ...config.addonProxies
+  });
   const playback = createPlaybackModule({
     ...config.playback,
     control: {
@@ -13,6 +17,7 @@ export function createApp(config = {}) {
   });
 
   return {
+    addonProxies,
     discovery,
     playback
   };
