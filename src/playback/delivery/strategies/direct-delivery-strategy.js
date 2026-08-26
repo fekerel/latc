@@ -60,7 +60,7 @@ export class DirectDeliveryStrategy {
       response,
       source
     });
-
+    
     try {
       await pipeline(source, response);
       logStreamEvent(session, "pipeline_complete", {

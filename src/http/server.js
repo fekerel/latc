@@ -1,6 +1,8 @@
 import express from "express";
 import http from "node:http";
 import { registerApiRoutes } from "./api/index.js";
+import { createPlaybackFilesRouter } from "./media/playback-files.js";
+import { createPlaybackSubtitlesRouter } from "./media/playback-subtitles.js";
 import { createPlaybackStreamsRouter } from "./media/playback-streams.js";
 import { globalErrorHandler } from "./middleware/global-error-handler.js";
 import { createStremioWebRouter } from "./web/stremio-web.js";
@@ -13,8 +15,16 @@ export function createServer(app, options = {}) {
 
   registerApiRoutes(expressApp, app);
   expressApp.use(
+    "/playback/files",
+    createPlaybackFilesRouter(app.playback)
+  );
+  expressApp.use(
     "/playback/streams",
     createPlaybackStreamsRouter(app.playback)
+  );
+  expressApp.use(
+    "/playback/subtitles",
+    createPlaybackSubtitlesRouter(app.playback)
   );
   expressApp.use("/web", createStremioWebRouter(options.web));
 

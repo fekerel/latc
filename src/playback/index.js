@@ -23,13 +23,16 @@ export function createPlaybackModule(options = {}) {
     controlStrategyRegistry,
     deliveryStrategyRegistry,
     sessionStore,
-    getPublicBaseUrl: options.getPublicBaseUrl
+    getPublicBaseUrl: options.getPublicBaseUrl,
+    fetch: options.fetch
   });
 
   return {
     deviceProfiles,
     createSession: service.createSession.bind(service),
     handleRequest: service.handleRequest.bind(service),
+    handleSubtitleRequest: service.handleSubtitleRequest.bind(service),
+    createSubtitleUrl: service.createSubtitleUrl.bind(service),
     getSession: sessionStore.getSession.bind(sessionStore),
     publicBaseUrl: service.publicBaseUrl
   };

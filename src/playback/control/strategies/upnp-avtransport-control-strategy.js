@@ -21,7 +21,11 @@ export class UpnpAvTransportControlStrategy {
       this.config.serviceIdentifier ?? session.deviceKey
     );
     const client = new this.MediaRendererClient(service.location);
-    const loadOptions = createLoadOptions(this.config, session.mediaResource);
+    const loadOptions = createLoadOptions(
+      this.config,
+      session.mediaResource,
+      session.source
+    );
 
     this.client = client;
     await setAvTransportUri(client, streamUrl, loadOptions);
@@ -81,7 +85,7 @@ function isAvTransportService(service) {
     .some((part) => part.toLowerCase() === "avtransport");
 }
 
-function createLoadOptions(config, mediaResource = {}) {
+function createLoadOptions(config, mediaResource = {}, source = {}) {
   const { serviceIdentifier, metadata, ...loadOptions } = config;
 
   return {
@@ -90,9 +94,25 @@ function createLoadOptions(config, mediaResource = {}) {
     ...loadOptions,
     metadata: {
       size: mediaResource.contentLength,
+      subtitles: createMetadataSubtitles(source.subtitles, config),
       ...metadata
     }
   };
+}
+
+function createMetadataSubtitles(subtitles = [], config = {}) {
+  return subtitles
+    .filter((subtitle) => subtitle.deliveryUrl)
+    .map((subtitle) => ({
+      url: subtitle.deliveryUrl,
+      format: subtitle.format ?? "srt",
+      language: subtitle.language,
+      label: subtitle.label,
+      contentType:
+        subtitle.contentType ??
+        config.subtitleContentType ??
+        "application/x-subrip"
+    }));
 }
 
 function setAvTransportUri(client, streamUrl, options) {
@@ -163,6 +183,7 @@ function createMetadata(metadata) {
       ? `<dc:creator>${escapeXml(metadata.creator)}</dc:creator>`
       : "",
     createResourceElement(metadata),
+    createSubtitleElements(metadata.subtitles),
     "</item>",
     "</DIDL-Lite>"
   ].join("");
@@ -178,6 +199,63 @@ function createResourceElement(metadata) {
   }
 
   return `<res ${attributes.join(" ")}>${escapeXml(metadata.url)}</res>`;
+}
+
+function createSubtitleElements(subtitles = []) {
+  return subtitles
+    .map((subtitle) => {
+      const attributes = createSubtitleAttributes(subtitle);
+      const url = escapeXml(subtitle.url);
+
+      return [
+        `<sec:CaptionInfoEx ${attributes}>${url}</sec:CaptionInfoEx>`,
+        `<sec:CaptionInfo ${attributes}>${url}</sec:CaptionInfo>`,
+        createSubtitleResourceElement(subtitle)
+      ].join("");
+    })
+    .join("");
+}
+
+function createSubtitleAttributes(subtitle) {
+  return createXmlAttributes({
+    "sec:type": subtitle.format ?? "srt",
+    "sec:lang": subtitle.language,
+    "sec:captionLang": subtitle.language,
+    "dc:language": subtitle.language,
+    lang: subtitle.language,
+    "xml:lang": subtitle.language,
+    "sec:label": subtitle.label,
+    "sec:name": subtitle.label,
+    name: subtitle.label,
+    title: subtitle.label
+  });
+}
+
+function createSubtitleResourceElement(subtitle) {
+  const contentType = normalizeContentType(subtitle.contentType) ?? "application/x-subrip";
+  const protocolInfo = `http-get:*:${contentType}:*`;
+  const attributes = createXmlAttributes({
+    protocolInfo,
+    "sec:type": subtitle.format ?? "srt",
+    "sec:lang": subtitle.language,
+    "sec:captionLang": subtitle.language,
+    "dc:language": subtitle.language,
+    lang: subtitle.language,
+    "xml:lang": subtitle.language,
+    "sec:label": subtitle.label,
+    "sec:name": subtitle.label,
+    name: subtitle.label,
+    title: subtitle.label
+  });
+
+  return `<res ${attributes}>${escapeXml(subtitle.url)}</res>`;
+}
+
+function createXmlAttributes(attributes) {
+  return Object.entries(attributes)
+    .filter(([, value]) => value)
+    .map(([name, value]) => `${name}="${escapeXml(value)}"`)
+    .join(" ");
 }
 
 function escapeXml(value) {
