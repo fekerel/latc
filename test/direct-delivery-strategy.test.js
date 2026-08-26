@@ -14,7 +14,8 @@ test("prepares a declared content type override while keeping upstream type", as
         status: 200,
         headers: new Map([
           ["content-type", "video/x-matroska; charset=binary"],
-          ["content-length", "123"]
+          ["content-length", "123"],
+          ["accept-ranges", "none"]
         ])
       })
     }
@@ -29,7 +30,10 @@ test("prepares a declared content type override while keeping upstream type", as
       upstreamContentType: "video/x-matroska; charset=binary",
       contentType: "video/mp4",
       contentLength: "123",
-      acceptRanges: "bytes"
+      acceptRanges: "bytes",
+      seekable: true,
+      dlnaFeatures:
+        "DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01500000000000000000000000000000"
     }
   );
 });
@@ -42,7 +46,8 @@ test("uses normalized upstream content type when no override matches", async () 
         status: 200,
         headers: new Map([
           ["content-type", "Video/MP4; charset=binary"],
-          ["content-length", "123"]
+          ["content-length", "123"],
+          ["accept-ranges", "bytes"]
         ])
       })
     }
@@ -57,7 +62,41 @@ test("uses normalized upstream content type when no override matches", async () 
       upstreamContentType: "Video/MP4; charset=binary",
       contentType: "video/mp4",
       contentLength: "123",
-      acceptRanges: "bytes"
+      acceptRanges: "bytes",
+      seekable: true,
+      dlnaFeatures:
+        "DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01500000000000000000000000000000"
+    }
+  );
+});
+
+test("prepares a non-seekable resource when accept-ranges is missing", async () => {
+  const strategy = new DirectDeliveryStrategy(
+    {},
+    {
+      fetch: async () => ({
+        status: 200,
+        headers: new Map([
+          ["content-type", "video/mp4"],
+          ["content-length", "123"]
+        ])
+      })
+    }
+  );
+
+  assert.deepEqual(
+    await strategy.prepare({
+      url: "http://media.test/video.mp4"
+    }),
+    {
+      resolvedUrl: "http://media.test/video.mp4",
+      upstreamContentType: "video/mp4",
+      contentType: "video/mp4",
+      contentLength: "123",
+      acceptRanges: undefined,
+      seekable: false,
+      dlnaFeatures:
+        "DLNA.ORG_OP=00;DLNA.ORG_FLAGS=01500000000000000000000000000000"
     }
   );
 });
@@ -87,7 +126,10 @@ test("answers HEAD requests from prepared session media resource", async () => {
       mediaResource: {
         contentType: "video/mp4",
         contentLength: "123",
-        acceptRanges: "bytes"
+        acceptRanges: "bytes",
+        seekable: true,
+        dlnaFeatures:
+          "DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01500000000000000000000000000000"
       }
     },
     request: {
@@ -109,6 +151,41 @@ test("answers HEAD requests from prepared session media resource", async () => {
     "transfermode.dlna.org": "Interactive",
     connection: "close"
   });
+});
+
+test("answers non-seekable HEAD requests with streaming DLNA headers", async () => {
+  const strategy = new DirectDeliveryStrategy();
+  const response = createFakeResponse();
+
+  await strategy.handleRequest({
+    session: {
+      id: "session-1",
+      source: {
+        url: "http://media.test/source"
+      },
+      mediaResource: {
+        contentType: "video/mp4",
+        contentLength: "123",
+        acceptRanges: undefined,
+        seekable: false,
+        dlnaFeatures:
+          "DLNA.ORG_OP=00;DLNA.ORG_FLAGS=01500000000000000000000000000000"
+      }
+    },
+    request: {
+      method: "HEAD",
+      headers: {}
+    },
+    response
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers["accept-ranges"], undefined);
+  assert.equal(
+    response.headers["contentfeatures.dlna.org"],
+    "DLNA.ORG_OP=00;DLNA.ORG_FLAGS=01500000000000000000000000000000"
+  );
+  assert.equal(response.headers["transfermode.dlna.org"], "Streaming");
 });
 
 function createFakeResponse() {

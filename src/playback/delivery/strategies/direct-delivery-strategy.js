@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { normalizeContentType } from "../../../common/content-type.js";
-import { createDefaultDlnaFeatures } from "../../../common/dlna.js";
+import { createHttpDlnaFeatures } from "../../../common/dlna.js";
 
 export class DirectDeliveryStrategy {
   static kind = "direct";
@@ -23,13 +23,23 @@ export class DirectDeliveryStrategy {
       upstreamContentType,
       this.config.declaredContentTypeOverrides
     );
+    const contentLength = response.headers.get("content-length") ?? undefined;
+    const acceptRanges = response.headers.has("accept-ranges")
+      ? "bytes"
+      : undefined;
+    const seekable = Boolean(contentLength && acceptRanges);
 
     return {
       resolvedUrl: url,
       upstreamContentType,
       contentType,
-      contentLength: response.headers.get("content-length") ?? undefined,
-      acceptRanges: "bytes"
+      contentLength,
+      acceptRanges,
+      seekable,
+      dlnaFeatures: createHttpDlnaFeatures({
+        contentType,
+        seekable
+      })
     };
   }
 
@@ -151,13 +161,13 @@ function copyUpstreamResponseHeaders(upstream, response, session) {
   setHeader(response, "content-type", session.mediaResource.contentType);
   setHeader(response, "content-length", getContentLength(upstream, session));
   copyHeader(upstream, response, "content-range");
-  setHeader(response, "accept-ranges", "bytes");
+  setHeader(response, "accept-ranges", session.mediaResource.acceptRanges);
   setHeader(
     response,
     "contentFeatures.dlna.org",
-    createDefaultDlnaFeatures(session.mediaResource.contentType)
+    session.mediaResource.dlnaFeatures
   );
-  setHeader(response, "transferMode.dlna.org", "Interactive");
+  setHeader(response, "transferMode.dlna.org", getTransferMode(session));
   setHeader(response, "connection", "close");
 }
 
@@ -169,9 +179,9 @@ function writePreparedMediaHeaders(response, session) {
   setHeader(
     response,
     "contentFeatures.dlna.org",
-    createDefaultDlnaFeatures(session.mediaResource.contentType)
+    session.mediaResource.dlnaFeatures
   );
-  setHeader(response, "transferMode.dlna.org", "Interactive");
+  setHeader(response, "transferMode.dlna.org", getTransferMode(session));
   setHeader(response, "connection", "close");
 }
 
@@ -189,6 +199,10 @@ function getContentLength(upstream, session) {
   }
 
   return session.mediaResource.contentLength ?? upstreamContentLength ?? undefined;
+}
+
+function getTransferMode(session) {
+  return session.mediaResource.seekable ? "Interactive" : "Streaming";
 }
 
 function resolveDeclaredContentType(upstreamContentType, overrides = {}) {

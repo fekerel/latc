@@ -87,6 +87,7 @@ function createLoadOptions(config, mediaResource = {}) {
   return {
     autoplay: true,
     contentType: mediaResource.contentType,
+    dlnaFeatures: mediaResource.dlnaFeatures,
     ...loadOptions,
     metadata: {
       size: mediaResource.contentLength,
