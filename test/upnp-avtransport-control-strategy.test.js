@@ -48,13 +48,20 @@ test("uses prepared media resource DLNA features in SetAVTransportURI metadata",
       deviceRegistryId: "device-1",
       deviceKey: "device-key-1",
       mediaResource: {
-        contentType: "video/mp4",
-        contentLength: "123",
-        dlnaFeatures:
-          "DLNA.ORG_OP=00;DLNA.ORG_FLAGS=01500000000000000000000000000000"
+        video: {
+          contentType: "video/mp4",
+          contentLength: "123",
+          dlnaFeatures:
+            "DLNA.ORG_OP=00;DLNA.ORG_FLAGS=01500000000000000000000000000000"
+        },
+        subtitle: {
+          contentType: "application/x-subrip; charset=utf-8",
+          language: "eng"
+        }
       }
     },
-    streamUrl: "http://latc.test/playback/streams/session-1"
+    streamUrl: "http://latc.test/playback/files/session-1/video",
+    subtitleUrl: "http://latc.test/playback/files/session-1/subtitle"
   });
 
   const setUriCall = calls.find(
@@ -64,5 +71,13 @@ test("uses prepared media resource DLNA features in SetAVTransportURI metadata",
   assert.match(
     setUriCall.params.CurrentURIMetaData,
     /protocolInfo="http-get:\*:video\/mp4:DLNA\.ORG_OP=00;DLNA\.ORG_FLAGS=01500000000000000000000000000000"/
+  );
+  assert.match(
+    setUriCall.params.CurrentURIMetaData,
+    /<sec:CaptionInfoEx sec:type="srt" sec:lang="eng" dc:language="eng" lang="eng" xml:lang="eng">http:\/\/latc\.test\/playback\/files\/session-1\/subtitle<\/sec:CaptionInfoEx>/
+  );
+  assert.match(
+    setUriCall.params.CurrentURIMetaData,
+    /<res protocolInfo="http-get:\*:application\/x-subrip:\*" sec:type="srt" sec:lang="eng" dc:language="eng" lang="eng" xml:lang="eng">http:\/\/latc\.test\/playback\/files\/session-1\/subtitle<\/res>/
   );
 });

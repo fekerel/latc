@@ -28,8 +28,10 @@ test("starts by preparing delivery and then requesting control playback", async 
         });
 
         return {
-          resolvedUrl: source.url,
-          contentType: "video/mp4"
+          video: {
+            resolvedUrl: source.url,
+            contentType: "video/mp4"
+          }
         };
       }
     },
@@ -52,8 +54,10 @@ test("starts by preparing delivery and then requesting control playback", async 
     streamUrl: "http://latc.test/playback/streams/session-1"
   }), undefined);
   assert.deepEqual(session.mediaResource, {
-    resolvedUrl: "http://media.test/video.mp4",
-    contentType: "video/mp4"
+    video: {
+      resolvedUrl: "http://media.test/video.mp4",
+      contentType: "video/mp4"
+    }
   });
   assert.deepEqual(calls, [
     {
@@ -66,8 +70,10 @@ test("starts by preparing delivery and then requesting control playback", async 
       action: "play",
       streamUrl: "http://latc.test/playback/streams/session-1",
       mediaResource: {
-        resolvedUrl: "http://media.test/video.mp4",
-        contentType: "video/mp4"
+        video: {
+          resolvedUrl: "http://media.test/video.mp4",
+          contentType: "video/mp4"
+        }
       }
     }
   ]);
@@ -94,26 +100,31 @@ test("patches media resource with shallow partial updates", () => {
   });
 
   session.patchMediaResource({
-    resolvedUrl: "http://media.test/video.mp4",
-    contentType: "video/mp4",
-    headers: {
-      acceptRanges: "bytes"
+    video: {
+      resolvedUrl: "http://media.test/video.mp4",
+      contentType: "video/mp4",
+      headers: {
+        acceptRanges: "bytes"
+      }
     }
   });
   session.patchMediaResource({
-    contentType: "video/x-matroska",
-    contentLength: "123",
-    headers: {
-      transferMode: "Interactive"
+    video: {
+      contentType: "video/x-matroska",
+      contentLength: "123",
+      headers: {
+        transferMode: "Interactive"
+      }
     }
   });
 
   assert.deepEqual(session.mediaResource, {
-    resolvedUrl: "http://media.test/video.mp4",
-    contentType: "video/x-matroska",
-    contentLength: "123",
-    headers: {
-      transferMode: "Interactive"
+    video: {
+      contentType: "video/x-matroska",
+      contentLength: "123",
+      headers: {
+        transferMode: "Interactive"
+      }
     }
   });
 });

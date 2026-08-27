@@ -15,7 +15,7 @@ export class PlaybackService {
     this.getPublicBaseUrl = getPublicBaseUrl;
   }
 
-  async createSession({ deviceRegistryId, sourceUrl }) {
+  async createSession({ deviceRegistryId, sourceUrl, subtitle }) {
     if (!deviceRegistryId) {
       throw new BadRequestError("deviceRegistryId is required");
     }
@@ -38,7 +38,8 @@ export class PlaybackService {
       deviceRegistryId,
       deviceKey: profile.deviceKey,
       source: {
-        url: sourceUrl
+        url: sourceUrl,
+        subtitle: createSubtitleSource(subtitle)
       },
       control: profile.control,
       delivery: profile.delivery,
@@ -46,9 +47,13 @@ export class PlaybackService {
       deliveryStrategy
     });
     const streamUrl = this.createStreamUrl(session.id);
+    const subtitleUrl = session.source.subtitle
+      ? this.createSubtitleUrl(session.id)
+      : undefined;
 
     await session.start({
-      streamUrl
+      streamUrl,
+      subtitleUrl
     });
 
     return {
@@ -57,17 +62,33 @@ export class PlaybackService {
     };
   }
 
-  async handleRequest(sessionId, { request, response }) {
+  async handleRequest(sessionId, { resourceKind = "video", request, response }) {
     const session = this.sessionStore.getSession(sessionId);
 
     await session.deliveryStrategy.handleRequest({
       session,
+      resourceKind,
       request,
       response
     });  
   }
 
   createStreamUrl(sessionId) {
-    return `${this.getPublicBaseUrl()}/playback/streams/${sessionId}`;
+    return `${this.getPublicBaseUrl()}/playback/files/${sessionId}/video`;
   }
+
+  createSubtitleUrl(sessionId) {
+    return `${this.getPublicBaseUrl()}/playback/files/${sessionId}/subtitle`;
+  }
+}
+
+function createSubtitleSource(subtitle) {
+  if (!subtitle?.url) {
+    return undefined;
+  }
+
+  return {
+    url: subtitle.url,
+    language: subtitle.lang
+  };
 }

@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { normalizeContentType } from "../../../common/content-type.js";
 import { createHttpDlnaFeatures } from "../../../common/dlna.js";
+import { NotFoundError } from "../../../common/errors/not-found-error.js";
 
 export class DirectDeliveryStrategy {
   static kind = "direct";
@@ -14,49 +15,59 @@ export class DirectDeliveryStrategy {
   }
 
   async prepare(source) {
+    return {
+      video: await this.prepareVideo(source),
+      subtitle: source.subtitle
+        ? await this.prepareSubtitle(source.subtitle)
+        : undefined
+    };
+  }
+
+  async prepareVideo(source) {
     const { url, response } = await resolveUpstream({
       fetch: this.fetch,
       url: source.url
     });
-    const upstreamContentType = response.headers.get("content-type") ?? undefined;
-    const contentType = resolveDeclaredContentType(
-      upstreamContentType,
-      this.config.declaredContentTypeOverrides
-    );
-    const contentLength = response.headers.get("content-length") ?? undefined;
-    const acceptRanges = response.headers.has("accept-ranges")
-      ? "bytes"
-      : undefined;
-    const seekable = Boolean(contentLength && acceptRanges);
+
+    return createVideoResource({
+      resolvedUrl: url,
+      response,
+      declaredContentTypeOverrides: this.config.declaredContentTypeOverrides
+    });
+  }
+
+  async prepareSubtitle(subtitle) {
+    const { url, response } = await resolveUpstream({
+      fetch: this.fetch,
+      url: subtitle.url
+    });
+
+    await response.body?.cancel?.();
 
     return {
       resolvedUrl: url,
-      upstreamContentType,
-      contentType,
-      contentLength,
-      acceptRanges,
-      seekable,
-      dlnaFeatures: createHttpDlnaFeatures({
-        contentType,
-        seekable
-      })
+      contentType: "application/x-subrip",
+      contentLength: response.headers.get("content-length") ?? undefined,
+      language: subtitle.language
     };
   }
 
-  async handleRequest({ session, request, response }) {
+  async handleRequest({ session, resourceKind = "video", request, response }) {
     if (request.method === "HEAD") {
       handleHeadRequest({
         session,
+        resourceKind,
         response
       });
       return;
     }
 
-    const upstream = await this.fetch(getUpstreamUrl(session), {
+    const resource = getSessionResource(session, resourceKind);
+    const upstream = await this.fetch(getSourceUrl(session, resourceKind), {
       headers: pickForwardedHeaders(request)
     });
 
-    copyUpstreamResponseHeaders(upstream, response, session);
+    copyUpstreamResponseHeaders(upstream, response, resource);
 
     if (!upstream.body) {
       response.end();
@@ -94,9 +105,39 @@ export class DirectDeliveryStrategy {
   }
 }
 
-function handleHeadRequest({ session, response }) {
-  writePreparedMediaHeaders(response, session);
+function handleHeadRequest({ session, resourceKind, response }) {
+  writePreparedMediaHeaders(response, getSessionResource(session, resourceKind));
   response.end();
+}
+
+function createVideoResource({
+  resolvedUrl,
+  response,
+  declaredContentTypeOverrides
+}) {
+  const upstreamContentType = response.headers.get("content-type") ?? undefined;
+  const contentType = resolveDeclaredContentType(
+    upstreamContentType,
+    declaredContentTypeOverrides
+  );
+  const contentLength = response.headers.get("content-length") ?? undefined;
+  const acceptRanges = response.headers.has("accept-ranges")
+    ? "bytes"
+    : undefined;
+  const seekable = Boolean(contentLength && acceptRanges);
+
+  return {
+    resolvedUrl,
+    upstreamContentType,
+    contentType,
+    contentLength,
+    acceptRanges,
+    seekable,
+    dlnaFeatures: createHttpDlnaFeatures({
+      contentType,
+      seekable
+    })
+  };
 }
 
 async function resolveUpstream({ fetch, url, maxRedirects = 10 }) {
@@ -134,7 +175,21 @@ function isRedirect(status) {
   return [301, 302, 303, 307, 308].includes(status);
 }
 
-function getUpstreamUrl(session) {
+function getSessionResource(session, resourceKind) {
+  const resource = session.mediaResource[resourceKind];
+
+  if (!resource) {
+    throw new NotFoundError("Media resource not found");
+  }
+
+  return resource;
+}
+
+function getSourceUrl(session, resourceKind) {
+  if (resourceKind === "subtitle") {
+    return session.source.subtitle?.url;
+  }
+
   return session.source.url;
 }
 
@@ -156,32 +211,32 @@ function copyHeader(upstream, response, name) {
   }
 }
 
-function copyUpstreamResponseHeaders(upstream, response, session) {
+function copyUpstreamResponseHeaders(upstream, response, resource) {
   response.status(upstream.status);
-  setHeader(response, "content-type", session.mediaResource.contentType);
-  setHeader(response, "content-length", getContentLength(upstream, session));
+  setHeader(response, "content-type", resource.contentType);
+  setHeader(response, "content-length", getContentLength(upstream, resource));
   copyHeader(upstream, response, "content-range");
-  setHeader(response, "accept-ranges", session.mediaResource.acceptRanges);
+  setHeader(response, "accept-ranges", resource.acceptRanges);
   setHeader(
     response,
     "contentFeatures.dlna.org",
-    session.mediaResource.dlnaFeatures
+    resource.dlnaFeatures
   );
-  setHeader(response, "transferMode.dlna.org", getTransferMode(session));
+  setHeader(response, "transferMode.dlna.org", getTransferMode(resource));
   setHeader(response, "connection", "close");
 }
 
-function writePreparedMediaHeaders(response, session) {
+function writePreparedMediaHeaders(response, resource) {
   response.status(200);
-  setHeader(response, "content-type", session.mediaResource.contentType);
-  setHeader(response, "content-length", session.mediaResource.contentLength);
-  setHeader(response, "accept-ranges", session.mediaResource.acceptRanges);
+  setHeader(response, "content-type", resource.contentType);
+  setHeader(response, "content-length", resource.contentLength);
+  setHeader(response, "accept-ranges", resource.acceptRanges);
   setHeader(
     response,
     "contentFeatures.dlna.org",
-    session.mediaResource.dlnaFeatures
+    resource.dlnaFeatures
   );
-  setHeader(response, "transferMode.dlna.org", getTransferMode(session));
+  setHeader(response, "transferMode.dlna.org", getTransferMode(resource));
   setHeader(response, "connection", "close");
 }
 
@@ -191,18 +246,22 @@ function setHeader(response, name, value) {
   }
 }
 
-function getContentLength(upstream, session) {
+function getContentLength(upstream, resource) {
   const upstreamContentLength = upstream.headers.get("content-length");
 
   if (upstream.status === 206 || upstream.headers.get("content-range")) {
     return upstreamContentLength ?? undefined;
   }
 
-  return session.mediaResource.contentLength ?? upstreamContentLength ?? undefined;
+  return resource.contentLength ?? upstreamContentLength ?? undefined;
 }
 
-function getTransferMode(session) {
-  return session.mediaResource.seekable ? "Interactive" : "Streaming";
+function getTransferMode(resource) {
+  if (!resource.dlnaFeatures) {
+    return undefined;
+  }
+
+  return resource.seekable ? "Interactive" : "Streaming";
 }
 
 function resolveDeclaredContentType(upstreamContentType, overrides = {}) {

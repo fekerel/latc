@@ -37,14 +37,15 @@ export class PlaybackSession extends EventEmitter {
     };
   }
 
-  async start({ streamUrl }) {
+  async start({ streamUrl, subtitleUrl }) {
     try {
       const mediaResource = await this.deliveryStrategy.prepare(this.source);
       this.patchMediaResource(mediaResource);
 
       await this.controlStrategy.play({
         session: this,
-        streamUrl
+        streamUrl,
+        subtitleUrl
       });  
     } catch (error) {
       if (error instanceof AppError) {

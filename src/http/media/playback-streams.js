@@ -12,6 +12,7 @@ export function createPlaybackStreamsRouter(playback) {
 function handlePlaybackRequest(playback) {
   return async (request, response) => {
     await playback.handleRequest(request.params.sessionId, {
+      resourceKind: "video",
       request,
       response
     });

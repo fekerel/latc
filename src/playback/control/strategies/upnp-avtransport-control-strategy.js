@@ -14,14 +14,18 @@ export class UpnpAvTransportControlStrategy {
     this.client = null;
   }
 
-  async play({ session, streamUrl }) {
+  async play({ session, streamUrl, subtitleUrl }) {
     const device = this.getDevice(session.deviceRegistryId);
     const { serviceIdentifier, service } = findAvTransportService(
       device,
       this.config.serviceIdentifier ?? session.deviceKey
     );
     const client = new this.MediaRendererClient(service.location);
-    const loadOptions = createLoadOptions(this.config, session.mediaResource);
+    const loadOptions = createLoadOptions(
+      this.config,
+      session.mediaResource,
+      subtitleUrl
+    );
 
     this.client = client;
     await setAvTransportUri(client, streamUrl, loadOptions);
@@ -81,18 +85,32 @@ function isAvTransportService(service) {
     .some((part) => part.toLowerCase() === "avtransport");
 }
 
-function createLoadOptions(config, mediaResource = {}) {
+function createLoadOptions(config, mediaResource = {}, subtitleUrl) {
   const { serviceIdentifier, metadata, ...loadOptions } = config;
+  const videoResource = mediaResource.video ?? {};
 
   return {
     autoplay: true,
-    contentType: mediaResource.contentType,
-    dlnaFeatures: mediaResource.dlnaFeatures,
+    contentType: videoResource.contentType,
+    dlnaFeatures: videoResource.dlnaFeatures,
     ...loadOptions,
     metadata: {
-      size: mediaResource.contentLength,
+      size: videoResource.contentLength,
+      subtitle: createMetadataSubtitle(mediaResource.subtitle, subtitleUrl),
       ...metadata
     }
+  };
+}
+
+function createMetadataSubtitle(subtitleResource, subtitleUrl) {
+  if (!subtitleResource || !subtitleUrl) {
+    return undefined;
+  }
+
+  return {
+    url: subtitleUrl,
+    language: subtitleResource.language,
+    contentType: subtitleResource.contentType ?? "application/x-subrip"
   };
 }
 
@@ -164,6 +182,7 @@ function createMetadata(metadata) {
       ? `<dc:creator>${escapeXml(metadata.creator)}</dc:creator>`
       : "",
     createResourceElement(metadata),
+    createSubtitleElements(metadata.subtitle),
     "</item>",
     "</DIDL-Lite>"
   ].join("");
@@ -179,6 +198,42 @@ function createResourceElement(metadata) {
   }
 
   return `<res ${attributes.join(" ")}>${escapeXml(metadata.url)}</res>`;
+}
+
+function createSubtitleElements(subtitle) {
+  if (!subtitle) {
+    return "";
+  }
+
+  const captionAttributes = createXmlAttributes({
+    "sec:type": "srt",
+    "sec:lang": subtitle.language,
+    "dc:language": subtitle.language,
+    lang: subtitle.language,
+    "xml:lang": subtitle.language
+  });
+  const resourceAttributes = createXmlAttributes({
+    protocolInfo: `http-get:*:${normalizeContentType(subtitle.contentType) ?? "application/x-subrip"}:*`,
+    "sec:type": "srt",
+    "sec:lang": subtitle.language,
+    "dc:language": subtitle.language,
+    lang: subtitle.language,
+    "xml:lang": subtitle.language
+  });
+  const url = escapeXml(subtitle.url);
+
+  return [
+    `<sec:CaptionInfoEx ${captionAttributes}>${url}</sec:CaptionInfoEx>`,
+    `<sec:CaptionInfo ${captionAttributes}>${url}</sec:CaptionInfo>`,
+    `<res ${resourceAttributes}>${url}</res>`
+  ].join("");
+}
+
+function createXmlAttributes(attributes) {
+  return Object.entries(attributes)
+    .filter(([, value]) => value)
+    .map(([name, value]) => `${name}="${escapeXml(value)}"`)
+    .join(" ");
 }
 
 function escapeXml(value) {
