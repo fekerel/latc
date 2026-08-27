@@ -12,6 +12,7 @@
   "dependencies": {
     "@achingbrain/ssdp": "github:fekerel/ssdp#main",
     "express": "^5.2.1",
+    "upnp-mediarenderer-client": "^1.4.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
