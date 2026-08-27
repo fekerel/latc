@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Writable } from "node:stream";
 import { test } from "node:test";
 import { DirectDeliveryStrategy } from "../src/playback/delivery/strategies/direct-delivery-strategy.js";
 
@@ -112,6 +113,12 @@ test("prepares a non-seekable resource when accept-ranges is missing", async () 
 
 test("prepares a subtitle resource when a subtitle source is present", async () => {
   const fetchCalls = [];
+  const subtitleText = [
+    "1",
+    "00:00:01,000 --> 00:00:03,000",
+    "Hello",
+    ""
+  ].join("\r\n");
   const strategy = new DirectDeliveryStrategy(
     {},
     {
@@ -125,8 +132,8 @@ test("prepares a subtitle resource when a subtitle source is present", async () 
             ["content-length", url.endsWith(".srt") ? "42" : "123"],
             ["accept-ranges", "bytes"]
           ]),
-          body: {
-            async cancel() {}
+          async text() {
+            return subtitleText;
           }
         };
       }
@@ -154,9 +161,11 @@ test("prepares a subtitle resource when a subtitle source is present", async () 
       },
       subtitle: {
         resolvedUrl: "http://media.test/subtitle.srt",
+        upstreamContentType: "text/plain",
         contentType: "application/x-subrip; charset=utf-8",
-        contentLength: "42",
-        language: "eng"
+        contentLength: String(Buffer.byteLength(subtitleText, "utf8")),
+        language: "eng",
+        shiftMs: 0
       }
     }
   );
@@ -164,6 +173,77 @@ test("prepares a subtitle resource when a subtitle source is present", async () 
     "http://media.test/video.mp4",
     "http://media.test/subtitle.srt"
   ]);
+});
+
+test("shifts and serves prepared subtitle resources from memory", async () => {
+  const fetchCalls = [];
+  const strategy = new DirectDeliveryStrategy(
+    {},
+    {
+      fetch: async (url) => {
+        fetchCalls.push(url);
+
+        return {
+          status: 200,
+          headers: new Map([
+            ["content-type", url.endsWith(".srt") ? "text/plain" : "video/mp4"],
+            ["content-length", "123"],
+            ["accept-ranges", "bytes"]
+          ]),
+          async text() {
+            return [
+              "1",
+              "00:00:01,000 --> 00:00:03,000",
+              "Hello",
+              ""
+            ].join("\n");
+          }
+        };
+      }
+    }
+  );
+  const mediaResource = await strategy.prepare({
+    url: "http://media.test/video.mp4",
+    subtitle: {
+      url: "http://media.test/subtitle.srt",
+      language: "eng",
+      shiftMs: 1500
+    }
+  });
+  const response = createWritableResponse();
+
+  await strategy.handleRequest({
+    session: {
+      id: "session-1",
+      source: {
+        url: "http://media.test/source",
+        subtitle: {
+          url: "http://media.test/subtitle.srt"
+        }
+      },
+      mediaResource
+    },
+    resourceKind: "subtitle",
+    request: {
+      method: "GET",
+      headers: {}
+    },
+    response
+  });
+
+  assert.deepEqual(fetchCalls, [
+    "http://media.test/video.mp4",
+    "http://media.test/subtitle.srt"
+  ]);
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    response.headers["content-type"],
+    "application/x-subrip; charset=utf-8"
+  );
+  assert.equal(
+    response.body.toString("utf8"),
+    ["1", "00:00:02,500 --> 00:00:04,500", "Hello", ""].join("\n")
+  );
 });
 
 test("answers HEAD requests from prepared session media resource", async () => {
@@ -273,4 +353,31 @@ function createFakeResponse() {
       this.ended = true;
     }
   };
+}
+
+function createWritableResponse() {
+  const chunks = [];
+  const response = new Writable({
+    write(chunk, encoding, callback) {
+      chunks.push(Buffer.from(chunk));
+      callback();
+    }
+  });
+
+  response.statusCode = undefined;
+  response.headers = {};
+  response.status = function status(statusCode) {
+    this.statusCode = statusCode;
+    return this;
+  };
+  response.setHeader = function setHeader(name, value) {
+    this.headers[name.toLowerCase()] = value;
+  };
+  Object.defineProperty(response, "body", {
+    get() {
+      return Buffer.concat(chunks);
+    }
+  });
+
+  return response;
 }

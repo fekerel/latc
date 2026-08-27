@@ -3,6 +3,7 @@ import { pipeline } from "node:stream/promises";
 import { normalizeContentType } from "../../../common/content-type.js";
 import { createHttpDlnaFeatures } from "../../../common/dlna.js";
 import { NotFoundError } from "../../../common/errors/not-found-error.js";
+import { shiftSrtTimestamps } from "../../../common/subtitles/srt.js";
 
 export class DirectDeliveryStrategy {
   static kind = "direct";
@@ -12,6 +13,7 @@ export class DirectDeliveryStrategy {
   constructor(config = {}, deps = {}) {
     this.config = config;
     this.fetch = deps.fetch ?? fetch;
+    this.subtitleBuffer = null;
   }
 
   async prepare(source) {
@@ -42,13 +44,18 @@ export class DirectDeliveryStrategy {
       url: subtitle.url
     });
 
-    await response.body?.cancel?.();
+    const originalSubtitle = await response.text();
+    const shiftMs = getSubtitleShiftMs(subtitle);
+    const preparedSubtitle = shiftSrtTimestamps(originalSubtitle, shiftMs);
+
+    this.subtitleBuffer = Buffer.from(preparedSubtitle, "utf8");
 
     return {
       resolvedUrl: url,
-      contentType: "application/x-subrip",
-      contentLength: response.headers.get("content-length") ?? undefined,
-      language: subtitle.language
+      contentType: "application/x-subrip;",
+      contentLength: String(this.subtitleBuffer.byteLength),
+      language: subtitle.language,
+      shiftMs
     };
   }
 
@@ -63,6 +70,16 @@ export class DirectDeliveryStrategy {
     }
 
     const resource = getSessionResource(session, resourceKind);
+
+    if (resourceKind === "subtitle") {
+      await handlePreparedSubtitleRequest({
+        resource,
+        subtitleBuffer: this.subtitleBuffer,
+        response
+      });
+      return;
+    }
+
     const upstream = await this.fetch(getSourceUrl(session, resourceKind), {
       headers: pickForwardedHeaders(request)
     });
@@ -103,6 +120,10 @@ export class DirectDeliveryStrategy {
       cleanupStreamListeners();
     }
   }
+
+  dispose() {
+    this.subtitleBuffer = null;
+  }
 }
 
 function handleHeadRequest({ session, resourceKind, response }) {
@@ -138,6 +159,19 @@ function createVideoResource({
       seekable
     })
   };
+}
+
+async function handlePreparedSubtitleRequest({
+  resource,
+  subtitleBuffer,
+  response
+}) {
+  if (!subtitleBuffer) {
+    throw new NotFoundError("Subtitle resource not found");
+  }
+
+  writePreparedMediaHeaders(response, resource);
+  await pipeline(Readable.from([subtitleBuffer]), response);
 }
 
 async function resolveUpstream({ fetch, url, maxRedirects = 10 }) {
@@ -262,6 +296,13 @@ function getTransferMode(resource) {
   }
 
   return resource.seekable ? "Interactive" : "Streaming";
+}
+
+function getSubtitleShiftMs(subtitle) {
+  const shiftMs = subtitle.shiftMs ?? subtitle.timeOffsetMs ?? 0;
+  const normalizedShiftMs = Number(shiftMs);
+
+  return Number.isFinite(normalizedShiftMs) ? normalizedShiftMs : 0;
 }
 
 function resolveDeclaredContentType(upstreamContentType, overrides = {}) {

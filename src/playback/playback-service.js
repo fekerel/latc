@@ -87,8 +87,18 @@ function createSubtitleSource(subtitle) {
     return undefined;
   }
 
-  return {
+  const subtitleSource = {
     url: subtitle.url,
-    language: subtitle.lang
+    language: subtitle.language ?? subtitle.lang
   };
+
+  if (subtitle.shiftMs !== undefined) {
+    subtitleSource.shiftMs = subtitle.shiftMs;
+  }
+
+  if (subtitle.timeOffsetMs !== undefined) {
+    subtitleSource.timeOffsetMs = subtitle.timeOffsetMs;
+  }
+
+  return subtitleSource;
 }

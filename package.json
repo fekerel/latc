@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "server": "node server.js",
+    "start": "cross-env STREMIO_WEB_DIST_DIR=../dist node server.js",
     "client": "node client.js",
     "test": "node --test"
   },
@@ -12,5 +13,8 @@
     "@achingbrain/ssdp": "github:fekerel/ssdp#main",
     "express": "^5.2.1",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0"
   }
 }
