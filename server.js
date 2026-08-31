@@ -16,7 +16,10 @@ const app = createApp({
       createLanPublicBaseUrl({
         port: PORT
       })
-  }
+  },
+  preview: {
+    ffmpegPath: "C:/Tools/ffmpeg-2026-08-27-git-a6f573a1db-essentials_build/bin/ffmpeg.exe"
+  },
 });
 const server = createServer(app, {
   web: {

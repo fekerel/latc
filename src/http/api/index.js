@@ -3,6 +3,7 @@ import { createAddonProxiesApi } from "./addon-proxies.js";
 import { createDeviceProfilesApi } from "./device-profiles.js";
 import { createDiscoveryApi } from "./discovery.js";
 import { createPlaybackSessionsApi } from "./playback-sessions.js";
+import { createPreviewsApi } from "./previews.js";
 import { createSubtitlesApi } from "./subtitles.js";
 
 export function registerApiRoutes(expressApp, app) {
@@ -16,6 +17,7 @@ export function registerApiRoutes(expressApp, app) {
     createDeviceProfilesApi(app.playback.deviceProfiles)
   );
   apiRouter.use("/playback", createPlaybackSessionsApi(app.playback));
+  apiRouter.use("/previews", createPreviewsApi(app.preview));
   apiRouter.use("/subtitles", createSubtitlesApi(app.subtitles));
 
   expressApp.use("/api", apiRouter);
