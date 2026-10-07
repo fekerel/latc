@@ -22,38 +22,58 @@ export function createStreamingServiceProxyRouter(options = {}) {
     options.upstreamBaseUrl ?? DEFAULT_STREAMING_SERVICE_BASE_URL;
 
   router.use(async (request, response) => {
+    const abortController = new AbortController();
+    const abortUpstream = () => {
+      if (!response.writableEnded) {
+        abortController.abort();
+      }
+    };
     const upstreamUrl = resolveUpstreamUrl(upstreamBaseUrl, request.originalUrl);
-    const upstream = await fetchUpstream(fetchFn, request, upstreamUrl);
 
-    copyUpstreamResponse(upstream, response);
-
-    if (request.method === "HEAD" || !upstream.body) {
-      response.end();
-      return;
-    }
+    request.once("aborted", abortUpstream);
+    response.once("close", abortUpstream);
 
     try {
-      await pipeline(Readable.fromWeb(upstream.body), response);
+      const upstream = await fetchUpstream(fetchFn, request, upstreamUrl, {
+        signal: abortController.signal
+      });
+
+      copyUpstreamResponse(upstream, response);
+
+      if (request.method === "HEAD" || !upstream.body) {
+        response.end();
+        return;
+      }
+
+      await pipeUpstreamBody(upstream, response);
     } catch (error) {
-      if (!response.headersSent) {
+      if (!abortController.signal.aborted && !isExpectedStreamingError(error)) {
         throw error;
       }
+    } finally {
+      request.off("aborted", abortUpstream);
+      response.off("close", abortUpstream);
     }
   });
 
   return router;
 }
 
-async function fetchUpstream(fetchFn, request, upstreamUrl) {
+async function fetchUpstream(fetchFn, request, upstreamUrl, options = {}) {
   try {
     return await fetchFn(upstreamUrl, {
       method: request.method,
       headers: createForwardedHeaders(request, upstreamUrl),
       body: createForwardedBody(request),
       duplex: hasRequestBody(request) ? "half" : undefined,
-      redirect: "manual"
+      redirect: "manual",
+      signal: options.signal
     });
   } catch (error) {
+    if (options.signal?.aborted || isExpectedStreamingError(error)) {
+      throw error;
+    }
+
     throw new AppError(
       `Streaming service proxy failed to reach upstream: ${upstreamUrl}`,
       502,
@@ -61,6 +81,28 @@ async function fetchUpstream(fetchFn, request, upstreamUrl) {
         cause: error.cause?.message ?? error.message
       }
     );
+  }
+}
+
+async function pipeUpstreamBody(upstream, response) {
+  const upstreamBody = Readable.fromWeb(upstream.body);
+
+  upstreamBody.on("error", ignoreStreamError);
+
+  try {
+    await pipeline(upstreamBody, response);
+  } catch (error) {
+    if (isExpectedStreamingError(error) || response.headersSent) {
+      if (!response.destroyed && !response.writableEnded) {
+        response.destroy();
+      }
+
+      return;
+    }
+
+    if (!response.headersSent) {
+      throw error;
+    }
   }
 }
 
@@ -106,4 +148,15 @@ function copyUpstreamResponse(upstream, response) {
 
 function ensureTrailingSlash(value) {
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function ignoreStreamError() {}
+
+function isExpectedStreamingError(error) {
+  return (
+    error.name === "AbortError" ||
+    error.message === "terminated" ||
+    error.cause?.code === "UND_ERR_SOCKET" ||
+    error.code === "ERR_STREAM_PREMATURE_CLOSE"
+  );
 }
